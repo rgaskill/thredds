@@ -110,8 +110,8 @@ public class DapTestCommon
         {
             this.req.setCharacterEncoding("UTF-8");
             this.req.setServletPath("/" + this.servletname);
-            URL url = new URL(this.url);
-            this.req.setProtocol(url.getProtocol());
+            URI url = HTTPUtil.parseToURI(this.url);
+            this.req.setProtocol(url.getScheme());
             this.req.setQueryString(url.getQuery());
             this.req.setServerName(url.getHost());
             this.req.setServerPort(url.getPort());

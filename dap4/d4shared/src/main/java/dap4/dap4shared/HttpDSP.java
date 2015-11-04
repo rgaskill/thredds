@@ -175,11 +175,11 @@ public class HttpDSP extends D4DSP
     callServer(String methodurl)
         throws DapException
     {
-        URL url;
+        URI uri;
 
         try {
-            url = new URL(methodurl);
-        } catch (MalformedURLException mue) {
+            uri = HTTPUtil.parseToURI(methodurl);
+        } catch (URISyntaxException mue) {
             throw new DapException("Malformed url: " + methodurl);
         }
 
