@@ -14,6 +14,8 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.io.StringReader;
 import java.net.MalformedURLException;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.net.URL;
 import java.nio.charset.Charset;
 import java.util.EnumSet;
@@ -32,6 +34,7 @@ import org.springframework.test.context.web.WebAppConfiguration;
 import thredds.server.dap4.Dap4Controller;
 import ucar.httpservices.HTTPFactory;
 import ucar.httpservices.HTTPMethod;
+import ucar.httpservices.HTTPUtil;
 import ucar.nc2.dataset.NetcdfDataset;
 import ucar.unidata.test.util.TestDir;
 
@@ -106,7 +109,7 @@ public class DapTestCommon
          * Instead, it requires the user to so do.
          */
         protected void setup()
-                throws MalformedURLException
+                throws URISyntaxException
         {
             this.req.setCharacterEncoding("UTF-8");
             this.req.setServletPath("/" + this.servletname);

@@ -10,6 +10,7 @@ import org.apache.http.Header;
 import org.apache.http.HttpStatus;
 import ucar.httpservices.HTTPFactory;
 import ucar.httpservices.HTTPMethod;
+import ucar.httpservices.HTTPUtil;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
