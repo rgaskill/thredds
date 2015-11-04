@@ -49,7 +49,7 @@ import java.net.URISyntaxException;
 public class TestURIParse extends UnitTestCommon
 {
     static public boolean DEBUG = false;
-    static public boolean DOCARON = true;
+    static public boolean DOCARON = false;
 
     static final String CARON = "http://localhost:8081/thredds/cdmremote/scanCdmUnitTests/formats/hdf5/grid_1_3d_xyz_aug.h5?req=data&var=HDFEOS_INFORMATION/StructMetadata\\.0";
 
@@ -94,12 +94,31 @@ public class TestURIParse extends UnitTestCommon
                 uri = null;
                 passthis = false;
             }
-            if(DEBUG) System.err.printf("raw=     |%s|%n", dumpraw(uri));
-            System.err.printf("input :: actual%n"
+	    String raw = dumpraw(uri);
+            if(DEBUG) System.err.printf("raw=     |%s|%n", raw);
+            System.err.printf("Test A: "
+				+ "input :: actual%n"
                                     + "\t   |%s|%n"
                                     + "\t:: |%s|%n",
                                     httptests[i],dump(uri));
             if(!httptests[i].equals(dump(uri))) {
+                passthis = false;
+            }
+	    // Second test is for idempotence of %xx form.
+            try {
+                uri = HTTPUtil.parseToURI(raw);
+            } catch (URISyntaxException use) {
+                System.err.println("Parse error: " + use.getMessage());
+                if(DEBUG) use.printStackTrace(System.err);
+                uri = null;
+                passthis = false;
+            }
+            System.err.printf("Test B: "
+				+ "input :: actual%n"
+                                    + "\t   |%s|%n"
+                                    + "\t:: |%s|%n",
+                                    raw,dumpraw(uri));
+            if(!raw.equals(dumpraw(uri))) {
                 passthis = false;
             }
             System.err.println(passthis ? "Pass" : "Fail");
