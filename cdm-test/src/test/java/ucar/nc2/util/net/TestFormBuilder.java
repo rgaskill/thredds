@@ -61,7 +61,7 @@ public class TestFormBuilder extends UnitTestCommon
     static final boolean DEBUG = false;
 
     static final int SIMPLEECHOPORT = 4444;
-    static final int MULTIECHOPORT = 4444;
+    static final int MULTIECHOPORT = 4445;
     static final String SIMPLEECHOURL = "http://localhost:" + SIMPLEECHOPORT;
     static final String MULTIECHOURL = "http://localhost:" + MULTIECHOPORT;
 
