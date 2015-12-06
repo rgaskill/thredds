@@ -829,7 +829,6 @@ public class HTTPSession implements AutoCloseable
             throw new HTTPException("HTTPSession(): empty scope not allowed");
         this.realm = scope;
         this.realmURI = HTTPAuthUtil.scopeToURI(scope).toString();
->>>>>>> master
         try {
             URL u = new URL(url);
             this.realmHost = u.getHost();
