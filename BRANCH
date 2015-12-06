@@ -1,0 +1,5 @@
+# 1. name of the base branch from which this one was taken
+# 2. The reason for this branch
+
+base: master (4.6)
+reason: to move to apache httpclient 4.5 or later and remove most of the deprecations
