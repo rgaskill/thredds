@@ -122,7 +122,6 @@ import static ucar.httpservices.HTTPAuthScope.*;
  * for each parameter change.
  */
 
-@NotThreadSafe
 public class HTTPSession implements AutoCloseable
 {
     //////////////////////////////////////////////////
@@ -517,31 +516,7 @@ public class HTTPSession implements AutoCloseable
 
     // Authorization
 
-    static synchronized protected void
-    defineCredentialsProvider(String principal, AuthScope scope, CredentialsProvider provider, HTTPAuthStore store)
-    {
-        if(store == null || scope == null)
-            throw new IllegalArgumentException("defineCredentialsProvider");
-        if(principal == null || principal.length() == 0)
-            principal = HTTPAuthStore.ANY_PRINCIPAL;
-        // Add/remove entry to AuthStore
-        try {
-            if(provider == null) {//remove
-                store.remove(new HTTPAuthStore.Entry(principal, scope, provider));
-            } else { // add
-                store.insert(new HTTPAuthStore.Entry(principal, scope, provider));
-            }
-        } catch (HTTPException he) {
-            log.error("HTTPSession.setCredentialsProvider failed");
-        }
-    }
-
     static public void
-    setGlobalCredentialsProvider(AuthScope scope, CredentialsProvider provider)
-    {
-        defineCredentialsProvider(ANY_PRINCIPAL, scope, provider, HTTPAuthStore.getDefault());
-   }
-
     setGlobalCredentialsProvider(CredentialsProvider provider, String scheme)
             throws HTTPException
     {
@@ -765,9 +740,6 @@ public class HTTPSession implements AutoCloseable
     // Per-session counterpart of globalsettings
     protected Settings localsettings = new Settings();
 
-    // The authstore to use
-    protected HTTPAuthStore authlocal = HTTPAuthStore.getDefault();
-
     // Track method objects using this session: for closing.
     protected List<ucar.httpservices.HTTPMethod> methodlist = new Vector<HTTPMethod>();
 
@@ -894,19 +866,6 @@ public class HTTPSession implements AutoCloseable
     getClient()
     {
         return this.cachedclient;
-    }
-
-    public HTTPAuthStore
-    getAuthStore()
-    {
-        return this.authlocal;
-    }
-
-    public void
-    setAuthStore(HTTPAuthStore store)
-    {
-        if(store == null) store = HTTPAuthStore.getDefault();
-        this.authlocal = store;
     }
 
     public Settings getSettings()
@@ -1409,13 +1368,6 @@ public class HTTPSession implements AutoCloseable
 
     //////////////////////////////////////////////////
     // Tracing
-
-    static public void setTracing(boolean tf)
-    {
-
-       }
-        return null;
-    }
 
     static public HTTPUtil.InterceptResponse
     debugResponseInterceptor()
