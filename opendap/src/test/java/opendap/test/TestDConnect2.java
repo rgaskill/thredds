@@ -1,14 +1,23 @@
 package opendap.test;
 
-import opendap.dap.*;
+import java.io.ByteArrayOutputStream;
+import java.io.FileWriter;
+import java.io.PrintStream;
+
+import opendap.dap.DAS;
+import opendap.dap.DConnect2;
+import opendap.dap.DDS;
+import opendap.dap.DataDDS;
 import opendap.util.Getopts;
 import opendap.util.InvalidSwitch;
+import org.junit.Assert;
+import org.junit.Before;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 import ucar.unidata.test.Diff;
-import ucar.unidata.test.util.ThreddsServer;
+import ucar.unidata.test.util.NeedsExternalResource;
 
-import java.io.*;
-
+@Category(NeedsExternalResource.class)
 public class TestDConnect2 extends TestSources {
 
   static boolean debug = false;
@@ -54,9 +63,8 @@ public class TestDConnect2 extends TestSources {
     setTitle("DAP DConnect2 Tests");
   }
 
-  @Override
-  protected void setUp() {
-    ThreddsServer.REMOTETEST.assumeIsAvailable();
+  @Before
+  public void setUp() {
     passcount = 0;
     xfailcount = 0;
     failcount = 0;
@@ -98,7 +106,7 @@ public class TestDConnect2 extends TestSources {
     testpart(TestPart.DDS, ce);
     if (constrained) testpart(TestPart.DATADDS, ce);
     if (!pass)
-      assertTrue(testname, pass);
+      Assert.assertTrue(testname, pass);
 
   }
 

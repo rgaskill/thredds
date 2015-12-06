@@ -32,15 +32,26 @@
 
 package opendap.test;
 
+import java.io.File;
+import java.io.FileReader;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.io.PrintWriter;
+import java.io.Reader;
+import java.io.StringReader;
+import java.io.StringWriter;
+import java.io.Writer;
+import java.util.ArrayList;
+import java.util.List;
+
+import org.junit.Assert;
+import org.junit.Test;
+import org.junit.experimental.categories.Category;
 import ucar.nc2.dods.DODSNetcdfFile;
 import ucar.nc2.util.UnitTestCommon;
 import ucar.unidata.test.Diff;
+import ucar.unidata.test.util.NeedsExternalResource;
 import ucar.unidata.test.util.TestDir;
-import ucar.unidata.test.util.ThreddsServer;
-
-import java.io.*;
-import java.util.ArrayList;
-import java.util.List;
 
 public class TestMisc extends UnitTestCommon
 {
@@ -99,16 +110,17 @@ public class TestMisc extends UnitTestCommon
     }
 
 
+    @Test
+    @Category(NeedsExternalResource.class)
     public void
     testMisc() throws Exception
     {
-        ThreddsServer.REMOTETEST.assumeIsAvailable();
         System.out.println("TestMisc:");
         for(Testcase testcase : testcases) {
             System.out.println("url: " + testcase.url);
             boolean pass = process1(testcase);
             if(!pass) {
-                assertTrue("Testing " + testcase.title, pass);
+                Assert.assertTrue("Testing " + testcase.title, pass);
             }
         }
     }

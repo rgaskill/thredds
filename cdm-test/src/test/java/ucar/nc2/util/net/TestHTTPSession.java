@@ -35,20 +35,28 @@ package ucar.nc2.util.net;
 import org.apache.http.client.config.RequestConfig;
 import org.junit.Before;
 import ucar.httpservices.*;
-
 import org.apache.http.*;
-import org.junit.Test;
-
-import org.apache.http.client.CredentialsProvider;
-import org.apache.http.message.AbstractHttpMessage;
-import ucar.nc2.util.UnitTestCommon;
-import ucar.unidata.test.util.TestDir;
-import ucar.unidata.test.util.ThreddsServer;
-
 import java.util.List;
 
-import static ucar.httpservices.HTTPSession.*;
+import org.apache.http.Header;
+import org.apache.http.client.CredentialsProvider;
+import org.apache.http.message.AbstractHttpMessage;
+import org.junit.Assert;
+import org.junit.Test;
+import org.junit.experimental.categories.Category;
+import ucar.httpservices.HTTPBasicProvider;
+import ucar.httpservices.HTTPFactory;
+import ucar.httpservices.HTTPMethod;
+import ucar.httpservices.HTTPSession;
+import ucar.nc2.util.UnitTestCommon;
+import ucar.unidata.test.util.NeedsExternalResource;
+import ucar.unidata.test.util.TestDir;
 
+import static ucar.httpservices.HTTPSession.CONN_TIMEOUT;
+import static ucar.httpservices.HTTPSession.MAX_REDIRECTS;
+import static ucar.httpservices.HTTPSession.SO_TIMEOUT;
+
+@Category(NeedsExternalResource.class)
 public class TestHTTPSession extends UnitTestCommon
 {
     //////////////////////////////////////////////////
@@ -77,11 +85,6 @@ public class TestHTTPSession extends UnitTestCommon
         HTTPSession.TESTING = true;
     }
 
-    @Before
-    public void setUp() {
-        ThreddsServer.REMOTETEST.assumeIsAvailable();
-    }
-
     @Test
     public void
     testAgent() throws Exception
@@ -99,11 +102,11 @@ public class TestHTTPSession extends UnitTestCommon
             // Use special interface to access the request
             // Look for the user agent header
             List<Header> agents = HTTPSession.debugRequestInterceptor().getHeaders(HTTPSession.HEADER_USERAGENT);
-            assertFalse("User-Agent Header not found", agents.size() == 0);
-            assertFalse("Multiple User-Agent Headers", agents.size() > 1);
-            assertTrue(String.format("User-Agent mismatch: expected %s found:%s",
-                    GLOBALAGENT, agents.get(0).getValue()),
-                GLOBALAGENT.equals(agents.get(0).getValue()));
+            Assert.assertFalse("User-Agent Header not found", agents.size() == 0);
+            Assert.assertFalse("Multiple User-Agent Headers", agents.size() > 1);
+            Assert.assertTrue(String.format("User-Agent mismatch: expected %s found:%s",
+                            GLOBALAGENT, agents.get(0).getValue()),
+                    GLOBALAGENT.equals(agents.get(0).getValue()));
             System.out.println("*** Pass: set global agent");
 
             System.out.println("Test: HTTPSession.setUserAgent(" + SESSIONAGENT + ")");
@@ -115,11 +118,11 @@ public class TestHTTPSession extends UnitTestCommon
 
             // Use special interface to access the request
             agents = HTTPSession.debugRequestInterceptor().getHeaders(HTTPSession.HEADER_USERAGENT);
-            assertFalse("User-Agent Header not found", agents.size() == 0);
-            assertFalse("Multiple User-Agent Headers", agents.size() > 1);
-            assertTrue(String.format("User-Agent mismatch: expected %s found:%s",
-                    SESSIONAGENT, agents.get(0).getValue()),
-                SESSIONAGENT.equals(agents.get(0).getValue()));
+            Assert.assertFalse("User-Agent Header not found", agents.size() == 0);
+            Assert.assertFalse("Multiple User-Agent Headers", agents.size() > 1);
+            Assert.assertTrue(String.format("User-Agent mismatch: expected %s found:%s",
+                            SESSIONAGENT, agents.get(0).getValue()),
+                    SESSIONAGENT.equals(agents.get(0).getValue()));
             System.out.println("*** Pass: set session agent");
         }
     }
@@ -156,7 +159,7 @@ public class TestHTTPSession extends UnitTestCommon
             RequestConfig rc = method.getConfig();
             boolean b = rc.isCircularRedirectsAllowed();
             System.out.println("Test: Circular Redirects");
-            assertTrue("*** Fail: Circular Redirects", b);
+            Assert.assertTrue("*** Fail: Circular Redirects", b);
             System.out.println("*** Pass: Circular Redirects");
 
             System.out.println("Test: Max Redirects");

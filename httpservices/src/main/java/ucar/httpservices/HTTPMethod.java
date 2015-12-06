@@ -170,7 +170,7 @@ public class HTTPMethod implements AutoCloseable
 
     protected HTTPSession session = null;
     protected boolean localsession = false;
-    protected URL methodurl = null;
+    protected URI methodurl = null;
     protected List<Header> headers = new ArrayList<Header>();
     protected HttpEntity content = null;
     protected HTTPSession.Methods methodclass = null;
@@ -201,13 +201,14 @@ public class HTTPMethod implements AutoCloseable
     public HTTPMethod(HTTPSession.Methods m, HTTPSession session, String u)
         throws HTTPException
     {
-        URL url = null;
-        if(u == null && session != null)
-            url = session.getURL();
-        else try {
-            url = new URL(u);
-        } catch (MalformedURLException mue) {
-            throw new HTTPException("Malformed URL: " + u, mue);
+        if(url == null && session != null)
+            url = session.getSessionURL();
+        if(url == null)
+            throw new HTTPException("HTTPMethod: cannot find usable url");
+        try {
+            this.methodurl = HTTPUtil.parseToURI(url); /// validate
+        } catch (URISyntaxException mue) {
+            throw new HTTPException("Malformed URL: " + url, mue);
         }
         if(session == null) {
             session = HTTPFactory.newSession(url.toString());
@@ -309,6 +310,109 @@ public class HTTPMethod implements AutoCloseable
     }
 
     //////////////////////////////////////////////////
+    public int execute()
+        throws HTTPException
+    {
+        if(closed)
+            throw new HTTPException("HTTPMethod: attempt to execute closed method");
+        if(this.methodurl == null)
+            throw new HTTPException("HTTPMethod: no url specified");
+        if(!localsession && !sessionCompatible(this.methodurl.toString()))
+            throw new HTTPException("HTTPMethod: session incompatible url: " + this.methodurl);
+
+        if(this.request != null)
+            this.request.releaseConnection();
+        this.request = createRequest();
+
+        try {
+            // Add any defined headers
+            if(headers.size() > 0) {
+                for(Header h : headers) {
+                    request.addHeader(h);
+                }
+            }
+
+            // Apply settings
+            configure(this.request);
+            setcontent(this.request);
+            AuthScope scope = setAuthentication();
+
+            //todo: Change the retry handler
+            //httpclient.setHttpRequestRetryHandler(myRetryHandler);
+            //request.getParams().setParameter(HttpMethodParams.RETRY_HANDLER, new RetryHandler());
+
+            //todo: get the protocol and port
+            //URL hack = new URL(this.legalurl);
+            //Protocol handler = session.getProtocol(hack.getProtocol(),
+            //    hack.getPort());
+            //HostConfiguration hc = session.sessionClient.getHostConfiguration();
+            //hc = new HostConfiguration(hc);
+            //hc.setHost(hack.getHost(), hack.getPort(), handler);
+
+            this.response = session.execute(request);
+            int code = response.getStatusLine().getStatusCode();
+
+            // On authorization error, clear entries from the credentials cache
+            if(code == HttpStatus.SC_UNAUTHORIZED
+                || code == HttpStatus.SC_PROXY_AUTHENTICATION_REQUIRED) {
+                HTTPCachingProvider.invalidate(scope);
+            }
+
+            return code;
+
+        } catch (Exception ie) {
+            throw new HTTPException(ie);
+        }
+    }
+
+    protected void
+    configure(HttpRequestBase request)
+        throws HTTPException
+    {
+        // merge global and local settings.
+        Settings merge = new Settings();
+        synchronized (this) {
+            Settings s = session.getGlobalSettings();
+            for(String key : s.getNames()) {
+                merge.setParameter(key, s.getParameter(key));
+            }
+            s = session.getSettings();
+            for(String key : s.getNames()) {
+                merge.setParameter(key, s.getParameter(key));
+            }
+        }
+        for(String key : merge.getNames()) {
+            Object value = merge.getParameter(key);
+            HttpParams hmp = request.getParams();
+
+            if(key.equals(ALLOW_CIRCULAR_REDIRECTS)) {
+                hmp.setParameter(ALLOW_CIRCULAR_REDIRECTS, (Boolean) value);
+            } else if(key.equals(HANDLE_REDIRECTS)) {
+                hmp.setParameter(HANDLE_REDIRECTS, (Boolean) value);
+            } else if(key.equals(HANDLE_AUTHENTICATION)) {
+                hmp.setParameter(HANDLE_AUTHENTICATION, (Boolean) value);
+            } else if(key.equals(MAX_REDIRECTS)) {
+                hmp.setParameter(MAX_REDIRECTS, (Integer) value);
+            } else if(key.equals(SO_TIMEOUT)) {
+                hmp.setParameter(SO_TIMEOUT, (Integer) value);
+            } else if(key.equals(CONN_TIMEOUT)) {
+                hmp.setParameter(CONN_TIMEOUT, (Integer) value);
+                // NOTE: Following modifying request, not builder
+            } else if(key.equals(USER_AGENT)) {
+                request.setHeader(HEADER_USERAGENT, value.toString());
+            } else if(key.equals(COMPRESSION)) {
+                request.setHeader(ACCEPT_ENCODING, value.toString());
+            } else if(key.equals(PROXY)) {
+                Proxy proxy = (Proxy) value;
+                if(session.sessionClient != null && proxy != null && proxy.host != null) {
+                    HttpHost httpproxy = new HttpHost(proxy.host, proxy.port);
+                    session.sessionClient.getParams().setParameter(PROXY, httpproxy);
+                }
+            } else {
+                throw new HTTPException("Unexpected setting name: " + key);
+            }
+        }
+    }
 
     /**
      * Calling close will force the method to close, and will

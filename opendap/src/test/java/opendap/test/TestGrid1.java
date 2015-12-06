@@ -32,10 +32,13 @@
  */
 package opendap.test;
 
+import org.junit.Assert;
+import org.junit.Test;
+import org.junit.experimental.categories.Category;
 import ucar.nc2.dataset.NetcdfDataset;
 import ucar.nc2.util.UnitTestCommon;
+import ucar.unidata.test.util.NeedsExternalResource;
 import ucar.unidata.test.util.TestDir;
-import ucar.unidata.test.util.ThreddsServer;
 
 /**
  * Test nc2 dods in the JUnit framework.
@@ -71,11 +74,11 @@ public class TestGrid1 extends UnitTestCommon
         setSystemProperties();
     }
 
+    @Test
+    @Category(NeedsExternalResource.class)
     public void testGrid1()
             throws Exception
     {
-        ThreddsServer.REMOTETEST.assumeIsAvailable();
-
         System.out.println("TestGrid1:");
         String url = null;
         boolean pass = true;
@@ -92,7 +95,7 @@ public class TestGrid1 extends UnitTestCommon
             pass = false;
         }
 
-        assertTrue("TestGrid1: cannot find dataset", pass);
+        Assert.assertTrue("TestGrid1: cannot find dataset", pass);
 
         System.out.println("url: " + url);
 
@@ -116,7 +119,7 @@ public class TestGrid1 extends UnitTestCommon
                     pass = false;
             }
         }
-        assertTrue("Testing TestGrid1" + getTitle(), pass
+        Assert.assertTrue("Testing TestGrid1" + getTitle(), pass
 
         );
     }

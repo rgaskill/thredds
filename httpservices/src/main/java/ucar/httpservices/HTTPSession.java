@@ -35,11 +35,10 @@ package ucar.httpservices;
 
 
 import org.apache.http.*;
-import org.apache.http.annotation.NotThreadSafe;
-import org.apache.http.auth.*;
-import org.apache.http.client.*;
-import org.apache.http.client.CookieStore;
-import org.apache.http.client.config.RequestConfig;
+import org.apache.http.auth.AuthScope;
+import org.apache.http.auth.Credentials;
+import org.apache.http.client.CredentialsProvider;
+import org.apache.http.client.HttpClient;
 import org.apache.http.client.entity.DeflateDecompressingEntity;
 import org.apache.http.client.entity.GzipDecompressingEntity;
 import org.apache.http.client.methods.CloseableHttpResponse;
@@ -91,21 +90,24 @@ import static ucar.httpservices.HTTPAuthScope.*;
  * invocation.  Second, if the method is created and specifies a
  * url, for example, HTTPMethod m = HTTPFactory.Get(session,url2);
  * this second url is used to specify the data to be retrieved by
- * the method invocation. In this situation, the url given to HTTPSession
- * should generally be the protocol+host+port.
- * <p/>
+ * the method invocation.  This might (and does) occur if, for
+ * example, the url given to HTTPSession represented some general
+ * url such as http://motherlode.ucar.edu/path/file.nc and the url
+ * given to HTTPFactory.Get was for something more specific such as
+ * http://motherlode.ucar.edu/path/file.nc.dds.
+ * <p>
  * The important point is that in this second method, the url must
  * be "compatible" with the session url.  The term "compatible"
  * basically means that the HTTPSession url's host+port must be the same
  * as that of the url given to HTTPFactory.Get. This maintains the
  * semantics of the Session but allows flexibility in accessing data
  * from the server.
- * <p/>
+ * <p>
  * Note that the term legalurl means that the url has reserved
  * characters within identifiers in escaped form. This is
  * particularly and issue for queries. Especially: ?x[0:5] is legal
  * and the square brackets need not be encoded.
- * <p/>
+ * <p>
  * Finally, note that a session cannot be created without a realm (host+port).
  * <p/>
  * It is important to note that as the move to Apache Httpclient 4.3.x,
@@ -538,6 +540,15 @@ public class HTTPSession implements AutoCloseable
     setGlobalCredentialsProvider(AuthScope scope, CredentialsProvider provider)
     {
         defineCredentialsProvider(ANY_PRINCIPAL, scope, provider, HTTPAuthStore.getDefault());
+   }
+
+    setGlobalCredentialsProvider(CredentialsProvider provider, String scheme)
+            throws HTTPException
+    {
+        if(scheme == null || provider == null)
+            throw new IllegalArgumentException("null argument");
+        AuthScope anybasic = new AuthScope(null, -1, null, scheme);
+        setGlobalCredentialsProvider(anybasic, provider);
     }
 
     static public void
@@ -572,6 +583,63 @@ public class HTTPSession implements AutoCloseable
 
     //////////////////////////////////////////////////
     // Static Utility functions
+
+    static public String getCanonicalURL(String legalurl)
+    {
+        if(legalurl == null) return null;
+        int index = legalurl.indexOf('?');
+        if(index >= 0) legalurl = legalurl.substring(0, index);
+        // remove any trailing extension
+        //index = legalurl.lastIndexOf('.');
+        //if(index >= 0) legalurl = legalurl.substring(0,index);
+        return canonicalpath(legalurl);
+    }
+
+    /**
+     * Convert path to use '/' consistently and
+     * to remove any trailing '/'
+     *
+     * @param path convert this path
+     * @return canonicalized version
+     */
+    static public String canonicalpath(String path)
+    {
+        if(path == null) return null;
+        path = path.replace('\\', '/');
+        if(path.endsWith("/"))
+            path = path.substring(0, path.length() - 1);
+        return path;
+    }
+
+    static public String
+    removeprincipal(String u)
+    {
+        // Must be a simpler way
+        String newurl = null;
+        try {
+            int index;
+            URI url = HTTPUtil.parseToURI(u);
+            String protocol = url.getScheme() + "://";
+            String host = url.getHost();
+            int port = url.getPort();
+            String path = url.getPath();
+            String query = url.getQuery();
+            String ref = url.getFragment();
+
+            String sport = (port <= 0 ? "" : (":" + port));
+            path = (path == null ? "" : path);
+            query = (query == null ? "" : "?" + query);
+            ref = (ref == null ? "" : "#" + ref);
+
+            // rebuild the url
+            // (and leaving encoding in place)
+            newurl = protocol + host + sport + path + query + ref;
+
+        } catch (URISyntaxException use) {
+            newurl = u;
+        }
+        return newurl;
+    }
 
     static public String
     getUrlAsString(String url) throws HTTPException
@@ -689,10 +757,9 @@ public class HTTPSession implements AutoCloseable
     // Instance variables
 
     // Currently, the granularity of authorization is host+port.
-    protected URL realmURL = null;
-    protected String realmScheme = null;
-    protected String realmHost = null;
-    protected int realmPort = -1;
+    protected String sessionURL = null; // This is a real url or one from the scope
+    protected AuthScope realm = null;
+    protected String realmURI = null;
     protected boolean closed = false;
 
     // Per-session counterpart of globalsettings
@@ -736,10 +803,33 @@ public class HTTPSession implements AutoCloseable
     {
         if(url == null || url.length() == 0)
             throw new HTTPException("HTTPSession(): empty URL not allowed");
+        try {
+            HTTPUtil.parseToURI(url); /// validate
+        } catch (URISyntaxException mue) {
+            throw new HTTPException("Malformed URL: " + url, mue);
+        }
         // Make sure url has leading protocol
         String[] pieces = url.split("^[a-zZ-Z0-9+.-]+:");
         if(pieces.length == 1)
             url = "http:" + url; // try to make it parseable
+        this.sessionURL = url;
+        init(HTTPAuthUtil.urlToScope(url, ANY_SCHEME));
+    }
+
+    public HTTPSession(AuthScope scope)
+            throws HTTPException
+    {
+        init(scope);
+    }
+
+    protected void init(AuthScope scope)
+            throws HTTPException
+    {
+        if(scope == null)
+            throw new HTTPException("HTTPSession(): empty scope not allowed");
+        this.realm = scope;
+        this.realmURI = HTTPAuthUtil.scopeToURI(scope).toString();
+>>>>>>> master
         try {
             URL u = new URL(url);
             this.realmHost = u.getHost();

@@ -168,6 +168,9 @@ public class Cinrad2VolumeScan {
     ArrayList doppler = new ArrayList();
 
     int recno = 0;
+    int sweepN = 1;
+    int [] recordNum = null;
+    int sums = 0;
     while (true) {
 
       Cinrad2Record r = Cinrad2Record.factory(raf, recno++);
@@ -179,6 +182,14 @@ public class Cinrad2VolumeScan {
         continue;
       }
 
+      if(recno == 1 && Cinrad2IOServiceProvider.isCC20){
+        sweepN = r.sweepN;
+        recordNum = r.recordNum;
+        //sums = Arrays.stream(recordNum).sum();
+        for (int i = 0; i < recordNum.length; i++) {
+          sums = sums + recordNum[i];
+        }
+      }
       if (showData) r.dump2(System.out);
 
       /* skip bad
@@ -195,13 +206,28 @@ public class Cinrad2VolumeScan {
       if (!r.checkOk()) {
         continue;
       }
-
+      if(Cinrad2IOServiceProvider.isCC20 && recno > sums)
+        continue;
       if (r.hasReflectData)
         reflectivity.add(r);
       if (r.hasDopplerData)
         doppler.add(r);
 
       if ((cancelTask != null) && cancelTask.isCancel()) return;
+    }
+
+    if(Cinrad2IOServiceProvider.isCC20){
+      Iterator itr = reflectivity.iterator();
+      for(int i = 0; i< sweepN; i++){
+        for(int j = 0; j < recordNum[i]; j++){
+          if(itr.hasNext()) {
+            Cinrad2Record r = (Cinrad2Record) itr.next();
+            r.radial_num = (short) (j + 1);
+            r.elevation_num = (short) (i);
+          }
+        }
+      }
+
     }
     if (debugRadials) System.out.println(" reflect ok= " + reflectivity.size() + " doppler ok= " + doppler.size());
 
@@ -262,9 +288,9 @@ public class Cinrad2VolumeScan {
     // use the maximum radials
     for (int i = 0; i < groups.size(); i++) {
       ArrayList group = (ArrayList) groups.get(i);
-      testScan(name, group);
       max_radials = Math.max(max_radials, group.size());
       min_radials = Math.min(min_radials, group.size());
+      testScan(name, group);
     }
     if (debugRadials) {
       System.out.println(name + " min_radials= " + min_radials + " max_radials= " + max_radials);
@@ -303,10 +329,11 @@ public class Cinrad2VolumeScan {
   }
 
   // do we have same characteristics for all records in a scan?
-  private int MAX_RADIAL = 401;
-  private int[] radial = new int[MAX_RADIAL];
+
 
   private boolean testScan(String name, ArrayList group) {
+    int MAX_RADIAL = max_radials +1;
+    int[] radial = new int[MAX_RADIAL];
     int datatype = name.equals("reflect") ? Cinrad2Record.REFLECTIVITY : Cinrad2Record.VELOCITY_HI;
     Cinrad2Record first = (Cinrad2Record) group.get(0);
 
@@ -346,7 +373,7 @@ public class Cinrad2VolumeScan {
         ok = false;
       }
 
-      if ((r.radial_num < 0) || (r.radial_num >= MAX_RADIAL)) {
+      if ((r.radial_num < 0) || (r.radial_num > MAX_RADIAL)) {
         log.info(raf.getLocation() + " radial out of range= " + r.radial_num + " in record " + name + " " + r);
         continue;
       }

@@ -2,6 +2,8 @@ description = "The NetCDF-Java Library is a Java interface to NetCDF files, as w
         "scientific data formats."
 ext.title = "CDM core library"
 
+apply plugin: 'groovy'  // For Spock tests.
+
 dependencies {
     compile project(':udunits')
     compile project(':httpservices')
@@ -14,8 +16,15 @@ dependencies {
     compile libraries["protobuf-java"]
     compile libraries["guava"]
     compile libraries["jcommander"]
+    compile libraries["aws-java-sdk-s3"]  // For CrawlableDatasetAmazonS3.
 
     compile libraries["slf4j-api"]
+
+    // These 4 are all for Spock.
+    testCompile libraries["spock-core"]
+    testCompile libraries["groovy-all"]
+    testRuntime libraries["cglib-nodep"]
+    testRuntime libraries["objenesis"]
 }
 
 test {
@@ -43,7 +52,7 @@ javadoc {
 }
 
 // TODO: Use the Sync task for this.
-task releaseDocs(dependsOn: javadoc) << {
+task releaseDocs(dependsOn: javadoc, group: 'Release') << {
     def releaseDir = webdir + "javadoc"
 
     ant.delete(dir: releaseDir)
@@ -77,7 +86,6 @@ task testJar(type: Jar, dependsOn: testClasses,
         include 'ucar/unidata/test/util/CompareNetcdf.class'
         include 'ucar/unidata/test/util/TestDir*.class'
         include 'ucar/unidata/test/util/TestFileDirUtils.class'
-        include 'ucar/unidata/test/util/ThreddsServer.class'
         include 'ucar/unidata/test/util/UtilsMa2Test.class'
         include 'ucar/unidata/test/util/UtilsTestStructureArray.class'
 
@@ -90,6 +98,7 @@ task testJar(type: Jar, dependsOn: testClasses,
         // JUnit categories
         include 'ucar/unidata/test/util/NeedsCdmUnitTest.class'
         include 'ucar/unidata/test/util/NeedsContentRoot.class'
+        include 'ucar/unidata/test/util/NeedsExternalResource.class'
         include 'ucar/unidata/test/util/NotJenkins.class'
         include 'ucar/unidata/test/util/NotTravis.class'
     }

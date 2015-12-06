@@ -1,7 +1,7 @@
 // This is still experimental. Don't rely on any of these methods.
 package thredds.server.radarServer2;
 
-import org.apache.commons.lang3.StringUtils;
+import com.google.common.base.Joiner;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -13,7 +13,6 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
-import java.nio.file.*;
 import java.lang.UnsupportedOperationException;
 import java.text.ParseException;
 import java.util.*;
@@ -125,7 +124,8 @@ public class RadarServerController {
         String contentPath = tdsContext.getContentDirectory().getPath();
         List<RadarServerConfig.RadarConfigEntry> configs = RadarServerConfig.readXML(contentPath + "/radar/radarCollections.xml");
         for (RadarServerConfig.RadarConfigEntry conf : configs) {
-            RadarDataInventory di = new RadarDataInventory(Paths.get(conf.diskPath));
+            RadarDataInventory di = new RadarDataInventory(conf.dataPath,
+                    conf.crawlItems);
             di.setName(conf.name);
             di.setDescription(conf.doc);
 
@@ -385,10 +385,14 @@ public class RadarServerController {
         }
 
         RadarDataInventory.Query q = di.newQuery();
-        if (!setTimeLimits(q, time, start, end, period, temporal))
-            throw new UnsupportedOperationException("Either a single time " +
-                    "argument, temporal=all, or a combination of time_start, " +
-                    "time_end, and time_duration must be provided.");
+        try {
+            if (!setTimeLimits(q, time, start, end, period, temporal))
+                throw new UnsupportedOperationException("Either a single time " +
+                        "argument, temporal=all, or a combination of time_start, " +
+                        "time_end, and time_duration must be provided.");
+        } catch (ParseException e) {
+            throw new UnsupportedOperationException("Invalid time string passed: " + e.getMessage());
+        }
         StringBuilder queryString = new StringBuilder();
         addQueryElement(queryString, "time", time);
         addQueryElement(queryString, "time_start", start);
@@ -430,7 +434,7 @@ public class RadarServerController {
     private void addQueryElement(StringBuilder sb, String name,
                                  String[] values) {
         if (values != null) {
-            addQueryElement(sb, name, StringUtils.join(values, ','));
+            addQueryElement(sb, name, Joiner.on(',').join(values));
         }
     }
 

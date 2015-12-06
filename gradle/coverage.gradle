@@ -2,6 +2,10 @@ configure(javaProjects + rootProject) {
     // The jacoco plugin adds the jacocoTestReport task, but only if the java plugin is already applied.
     apply plugin: "jacoco"
 
+    jacoco {
+        toolVersion = '0.7.5.201505241946'  // The latest version as of 2015-06-26.
+    }
+
     tasks.withType(Test).all {
         // Add the execution data that Jacoco generates as a task output.
         outputs.file jacoco.destinationFile
@@ -11,6 +15,8 @@ configure(javaProjects + rootProject) {
     tasks.withType(JacocoReport).all {
         // Include all Test tasks from this project and any subprojects.
         dependsOn allprojects*.tasks*.withType(Test)
+
+        group = 'Reports'
 
         List<SourceSet> mainSourceSets = javaProjects*.sourceSets*.main
         sourceDirectories = files(mainSourceSets*.allSource*.srcDirs)
