@@ -33,33 +33,30 @@
 
 package ucar.httpservices;
 
-import net.jcip.annotations.NotThreadSafe;
 import org.apache.http.*;
 import org.apache.http.auth.AuthScope;
 import org.apache.http.auth.Credentials;
 import org.apache.http.client.CredentialsProvider;
 import org.apache.http.client.HttpClient;
+import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.entity.DeflateDecompressingEntity;
 import org.apache.http.client.entity.GzipDecompressingEntity;
 import org.apache.http.client.methods.HttpRequestBase;
 import org.apache.http.client.params.AllClientPNames;
-import org.apache.http.client.protocol.ClientContext;
-import org.apache.http.conn.scheme.Scheme;
+import org.apache.http.client.protocol.HttpClientContext;
 import org.apache.http.cookie.Cookie;
 import org.apache.http.entity.ContentType;
 import org.apache.http.entity.StringEntity;
-import org.apache.http.impl.client.AbstractHttpClient;
+import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.DefaultHttpClient;
+import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.http.impl.conn.PoolingClientConnectionManager;
-import org.apache.http.params.SyncBasicHttpParams;
 import org.apache.http.protocol.BasicHttpContext;
-import org.apache.http.protocol.ExecutionContext;
 import org.apache.http.protocol.HttpContext;
 
-import javax.net.ssl.SSLException;
 import java.io.IOException;
-import java.io.InterruptedIOException;
-import java.net.*;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.nio.charset.UnsupportedCharsetException;
 import java.util.*;
 
@@ -76,7 +73,7 @@ import static org.apache.http.auth.AuthScope.*;
  * <li> An instance of an Apache HttpClient.
  * <li> A http session id
  * <li> A RequestContext object; this also includes authentication:
- *      specifically a credential and a credentials provider.
+ * specifically a credential and a credentials provider.
  * <li> Optional principal (not yet implemented)
  * </ul>
  * <p>
@@ -106,6 +103,21 @@ import static org.apache.http.auth.AuthScope.*;
  * effected without have to re-create the HttpClient for each parameter
  * change. Also note that the immutable objects will be cached and reused
  * if no parameters are changed.
+ * <p>
+ * <ul>Authorization</ul>
+ * We assume that the session supports two CredentialsProvider instances
+ * and that for a our realm, there is only one scheme for accessing it.
+ * The two providers are global and local. The global is used for
+ * all HTTPSession instances and the local is for a specific instance.
+ * <p>
+ * <ul>Proxy</ul>
+ * We no longer include any proxy support. Instead we assume the user
+ * will set the following -D flags:
+ * <ul>
+ * <li> -Dhttps.proxyHost=<host>
+ * <li> -Dhttp.proxyPort=<port>
+ * <li> -Djava.net.useSystemProxies(=true)
+ * </ul>
  */
 
 public class HTTPSession implements AutoCloseable
@@ -125,7 +137,6 @@ public class HTTPSession implements AutoCloseable
     static public final String SO_TIMEOUT = AllClientPNames.SO_TIMEOUT;
     static public final String CONN_TIMEOUT = AllClientPNames.CONNECTION_TIMEOUT;
     static public final String USER_AGENT = AllClientPNames.USER_AGENT;
-    static public final String PROXY = AllClientPNames.DEFAULT_PROXY;
 
     // Following not from AllClientPNames
     static public final String COOKIE_STORE = org.apache.http.client.protocol.HttpClientContext.COOKIE_STORE;
@@ -157,6 +168,8 @@ public class HTTPSession implements AutoCloseable
     static final int DFALTUNAVAILINTERVAL = 3000; // 3 seconds
     static final String DFALTUSERAGENT = "/NetcdfJava/HttpClient4.4";
 
+    static final String[] KNOWNCOMPRESSORS = {"gzip", "deflate"};
+
     //////////////////////////////////////////////////////////////////////////
     // Type Declaration(s)
 
@@ -170,11 +183,11 @@ public class HTTPSession implements AutoCloseable
         {
         }
 
-	public Set<String>
+        public Set<String>
         getKeys()
         {
-	    return keySet();
-	}
+            return keySet();
+        }
 
         public Object getParameter(String param)
         {
@@ -191,13 +204,6 @@ public class HTTPSession implements AutoCloseable
             return super.remove(param);
         }
 
-    }
-
-    static class Proxy
-    {
-        public String host = null;
-        public int port = -1;
-        public String userpwd = null;
     }
 
     static enum Methods
@@ -258,6 +264,18 @@ public class HTTPSession implements AutoCloseable
         }
     }
 
+    static class AuthPair
+    {
+        String scheme = null;
+        CredentialsProvider provider = null;
+
+        AuthPair(String scheme, CredentialsProvider provider)
+        {
+            this.scheme = scheme;
+            this.provider = provider;
+        }
+    }
+
     ////////////////////////////////////////////////////////////////////////
     // Static variables
 
@@ -277,6 +295,9 @@ public class HTTPSession implements AutoCloseable
     static List<HttpResponseInterceptor> rspintercepts = new ArrayList<HttpResponseInterceptor>();
     // This is a hack to suppress content-encoding headers from request
     static protected HttpResponseInterceptor CEKILL;
+    // Debug Header interceptors
+    static protected List<HttpRequestInterceptor> dbgreq = new ArrayList<>();
+    static protected List<HttpResponseInterceptor> dbgrsp = new ArrayList<>();
 
     // For debugging
     static protected Boolean globaldebugheaders = null;
@@ -317,7 +338,6 @@ public class HTTPSession implements AutoCloseable
         setGlobalThreadCount(DFALTTHREADCOUNT);
         setGlobalConnectionTimeout(DFALTCONNTIMEOUT);
         setGlobalSoTimeout(DFALTSOTIMEOUT);
-        getGlobalProxyD(); // get info from -D if possible
         setGlobalKeyStore();
     }
 
@@ -329,10 +349,10 @@ public class HTTPSession implements AutoCloseable
     {
         // merge global and local settings; local overrides global.
         Settings merge = new Settings();
-        for(String key : globalsettings.getNames()) {
+        for(String key : globalsettings.getKeys()) {
             merge.setParameter(key, globalsettings.getParameter(key));
         }
-        for(String key : localsettings.getNames()) {
+        for(String key : localsettings.getKeys()) {
             merge.setParameter(key, localsettings.getParameter(key));
         }
         return merge;
@@ -396,25 +416,7 @@ public class HTTPSession implements AutoCloseable
         if(timeout >= 0) globalsettings.setParameter(SO_TIMEOUT, (Integer) timeout);
     }
 
-    // Proxy support
-
-    static synchronized public void
-    setGlobalProxy(String host, int port, String userpwd)
-    {
-        if(host == null || host.length() == 0)
-            throw new IllegalArgumentException("setGlobalProxy");
-        if(userpwd != null && userpwd.length() == 0)
-            userpwd = null;
-        if(userpwd != null && userpwd.indexOf(':') < 0)
-            throw new IllegalArgumentException("setGlobalProxy");
-        Proxy proxy = new Proxy();
-        proxy.host = host;
-        proxy.port = port;
-        proxy.userpwd = userpwd; // null if not authenticating
-        globalsettings.setParameter(PROXY, proxy);
-    }
-
-    // Misc.
+    // Compression
 
     static synchronized public void
     setGlobalCompression()
@@ -426,10 +428,12 @@ public class HTTPSession implements AutoCloseable
         rspintercepts.add(hrsi);
     }
 
+    //////////////////////////////////////////////////
     // Authorization
 
     /**
-     * Assumes that the scheme here is BASIC and the scope is ANY_SCOPE
+     * Assumes that the scheme here is BASIC
+     *
      * @param provider
      * @throws HTTPException
      */
@@ -437,64 +441,8 @@ public class HTTPSession implements AutoCloseable
     setGlobalCredentialsProvider(CredentialsProvider provider)
             throws HTTPException
     {
-        if(provider == null)
-            throw new IllegalArgumentException("null argument");
-	setGlobalCredentialsProvider(ANY_SCOPE,HTTPAuthSchemes.BASIC,provider);
-    }
-
-    /**
-     * Assumes that the scheme here is BASIC
-     * @param url
-     * @param provider
-     * @throws HTTPException
-     */
-    static public void
-    setGlobalCredentialsProvider(String scopeurl, CredentialsProvider provider)
-            throws HTTPException
-    {
-        if(scopeurl == null || provider == null)
-            throw new IllegalArgumentException("null argument");
-        setGlobalCredentialsProvider(HTTPAuthUtil.urlToScope(scopeurl, HTTPAuthSchemes.BASIC), provider);
-    }
-
-    /**
-     * @param url
-     * @param provider
-     * @throws HTTPException
-     */
-    static public void
-    setGlobalCredentialsProvider(CredentialsProvider provider, String scheme)
-            throws HTTPException
-    {
-        if(scheme == null || provider == null)
-            throw new IllegalArgumentException("null argument");
-        AuthScope anybasic = new AuthScope(null, -1, null, scheme);
-        setGlobalCredentialsProvider(anybasic, provider);
-    }
-
-    static public void
-    setGlobalCredentialsProvider(AuthScope scope, CredentialsProvider provider)
-            throws HTTPException
-    {
-        if(provider == null || scope == null || scope.getScheme() == null)
-            throw new IllegalArgumentException("null argument");
-        authglobal.insert(scope, provider);
-    }
-
-    /**
-     * It is convenient to be able to directly set the Credentials
-     * (not the provider) when those credentials are fixed.
-     *
-     * @param url
-     * @param creds
-     * @throws HTTPException
-     */
-    static public void
-    setGlobalCredentials(String url, Credentials creds)
-            throws HTTPException
-    {
-        CredentialsProvider provider = new HTTPConstantProvider(creds);
-        setGlobalCredentialsProvider(url, provider);
+        if(provider == null) throw new IllegalArgumentException("null argument");
+        setGlobalCredentialsProvider(HTTPAuthSchemes.BASIC, provider);
     }
 
     /**
@@ -512,16 +460,17 @@ public class HTTPSession implements AutoCloseable
         setGlobalCredentialsProvider(provider);
     }
 
-    static public int
-    getRetryCount()
-    {
-        return RetryHandler.getRetries();
-    }
-
+    /**
+     * Ideally, it would nice if one could get the scheme
+     * from the Credentials/CredentialsProvider, but no.
+     */
     static public void
-    setRetryCount(int count)
+    setGlobalCredentialsProvider(String scheme, CredentialsProvider provider)
+            throws HTTPException
     {
-        RetryHandler.setRetries(count);
+        if(provider == null || scheme == null)
+            throw new IllegalArgumentException("null argument");
+        globalsettings.setParameter(CREDENTIALS, new AuthPair(scheme, provider));
     }
 
     //////////////////////////////////////////////////
@@ -669,54 +618,36 @@ public class HTTPSession implements AutoCloseable
         }
     }
 
-    // For backward compatibility, provide
-    // programmatic access for setting proxy info
-    // Extract proxy info from command line -D parameters
-    // extended 5/7/2012 to get NTLM domain
-    // H/T: nick.bower@metoceanengineers.com
-    static void
-    getGlobalProxyD()
-    {
-        String host = System.getProperty("http.proxyHost");
-        String port = System.getProperty("http.proxyPort");
-        int portno = -1;
-
-        if(host != null) {
-            host = host.trim();
-            if(host.length() == 0) host = null;
-        }
-        if(port != null) {
-            port = port.trim();
-            if(port.length() > 0) {
-                try {
-                    portno = Integer.parseInt(port);
-                } catch (NumberFormatException nfe) {
-                    portno = -1;
-                }
-            }
-        }
-
-        if(host != null)
-            setGlobalProxy(host, portno);
-    }
-
     //////////////////////////////////////////////////
     // Instance variables
 
 
     // Currently, the granularity of authorization is host+port.
     protected String sessionURL = null; // This is a real url or one from the scope
-    protected AuthScope realm = null;
-    protected String realmURI = null;
+    protected String scopeURI = null;
+    protected AuthScope scope = null; /* from scopeURI  */
     protected boolean closed = false;
 
-    protected AbstractHttpClient sessionClient = null;
+    protected CloseableHttpClient sessionClient = null;
     protected List<ucar.httpservices.HTTPMethod> methodList = new Vector<HTTPMethod>();
-    protected HttpContext execcontext = null; // same instance must be used for all methods
     protected String identifier = "Session";
     protected Settings localsettings = new Settings();
+
     // We currently only allow the use of global interceptors
     protected List<Object> intercepts = new ArrayList<Object>(); // current set of interceptors;
+
+    // This context is re-used over all method executions so that we maintain cookies,
+    // credentials, etc.
+    protected HttpClientContext execcontext = HttpClientContext.create();
+
+    // cached and recreated as needed
+    protected boolean cachevalid = false; // Are cached items up-to-date?
+    protected CloseableHttpClient cachedclient = null;
+    protected AuthScope cachedscope = null;
+    protected URI cachedURI = null;
+
+    // this is a security flaw; not currently used
+    protected String sessionid = null;
 
     //////////////////////////////////////////////////
     // Constructor(s)
@@ -729,7 +660,7 @@ public class HTTPSession implements AutoCloseable
     public HTTPSession(String host, int port)
             throws HTTPException
     {
-        init(new AuthScope(host, port, HTTPAuthUtil.makerealm(host, port)));
+        init(new AuthScope(host, port, HTTPAuthUtil.makescope(host, port)));
     }
 
 
@@ -759,10 +690,9 @@ public class HTTPSession implements AutoCloseable
     protected void init(AuthScope scope)
             throws HTTPException
     {
-        if(scope == null)
-            throw new HTTPException("HTTPSession(): empty scope not allowed");
-        this.realm = scope;
-        this.realmURI = HTTPAuthUtil.scopeToURI(scope).toString();
+        if(scope == null) throw new IllegalArgumentException("null argument");
+        this.scope = scope;
+        this.scopeURI = HTTPAuthUtil.scopeToURI(scope).toString();
         try {
             synchronized (HTTPSession.class) {
                 sessionClient = new DefaultHttpClient(connmgr);
@@ -772,21 +702,71 @@ public class HTTPSession implements AutoCloseable
         } catch (Exception e) {
             throw new HTTPException("scope=" + scope, e);
         }
-        this.execcontext = new BasicHttpContext();// do we need to modify?
+        this.cachevalid = false; // Force build on first use
     }
 
     //////////////////////////////////////////////////
     // Interceptors
 
-    synchronized void
-    setInterceptors()
+    public void
+    setCompression(String compressors)
+    {
+        // Syntactic check of compressors
+        Set<String> cset = new Set<>();
+        String[] pieces = compressors.split("[ \t]*[,][ \t]*");
+        for(String p : pieces) {
+            for(String c : KNOWNCOMPRESSORS) {
+                if(p.equalsIgnoreCase(c)) {
+                    cset.add(c);
+                    break;
+                }
+            }
+        }
+        StringBuilder buf = new StringBuilder();
+        for(String s : cset) {
+            if(buf.length() > 0) buf.append(",");
+            buf.append(s);
+        }
+        if(localsettings.getParameter(COMPRESSION) != null)
+            removeCompression();
+        localsettings.setParameter(COMPRESSION, buf.toString());
+        HttpResponseInterceptor hrsi = new GZIPResponseInterceptor();
+        rspintercepts.add(hrsi);
+        hrsi = new DeflateResponseInterceptor();
+        rspintercepts.add(hrsi);
+    }
+
+    public void
+    removeCompression()
+    {
+        if(localsettings.removeParameter(COMPRESSION) != null) {
+            for(int i = rspintercepts.size() - 1; i >= 0; i--) { // walk backwards
+                HttpResponseInterceptor hrsi = rspintercepts.get(i);
+                if(hrsi instanceof GZIPResponseInterceptor
+                        || hrsi instanceof DeflateResponseInterceptor)
+                    rspintercepts.remove(i);
+            }
+        }
+    }
+
+    protected void
+    setInterceptors(HttpClientBuilder cb)
     {
         for(HttpRequestInterceptor hrq : reqintercepts) {
-            sessionClient.addRequestInterceptor(hrq);
+            cb.addInterceptorLast(hrq);
         }
         for(HttpResponseInterceptor hrs : rspintercepts) {
-            sessionClient.addResponseInterceptor(hrs);
+            cb.addInterceptorLast(hrs);
         }
+        // Add debug interceptors
+        for(HttpRequestInterceptor hrq : dbgreq) {
+            cb.addInterceptorFirst(hrq);
+        }
+        for(HttpResponseInterceptor hrs : dbgrsp) {
+            cb.addInterceptorFirst(hrs);
+        }
+        // Hack: add Content-Encoding suppressor
+        cb.addInterceptorFirst(CEKILL);
     }
 
     synchronized void
@@ -829,23 +809,34 @@ public class HTTPSession implements AutoCloseable
 
     public void setUserAgent(String agent)
     {
-        if(agent != null)
-            localsettings.setParameter(USER_AGENT, agent);
+        if(agent == null || agent.length() == 0) throw new IllegalArgumentException("null argument");
+        localsettings.setParameter(USER_AGENT, agent);
+        this.cachevalid = false;
     }
 
     public void setSoTimeout(int timeout)
     {
-        if(timeout >= 0) localsettings.setParameter(SO_TIMEOUT, timeout);
+        if(timeout <= 0)
+            throw new IllegalArgumentException("setSoTimeout");
+        localsettings.setParameter(SO_TIMEOUT, timeout);
+        this.cachevalid = false;
     }
 
     public void setConnectionTimeout(int timeout)
     {
-        if(timeout >= 0) localsettings.setParameter(CONN_TIMEOUT, timeout);
+        if(timeout <= 0)
+            throw new IllegalArgumentException("setConnectionTImeout");
+        localsettings.setParameter(CONN_TIMEOUT, timeout);
+        localsettings.setParameter(CONN_REQ_TIMEOUT, timeout);
+        this.cachevalid = false;
     }
 
     public void setMaxRedirects(int n)
     {
+        if(n < 0) //validate
+            throw new IllegalArgumentException("setMaxRedirects");
         localsettings.setParameter(MAX_REDIRECTS, n);
+        this.cachevalid = false;
     }
 
     // make package specific
@@ -856,11 +847,10 @@ public class HTTPSession implements AutoCloseable
         return this.execcontext;
     }
 
-
     HttpClient
     getClient()
     {
-        return this.sessionClient;
+        return this.cachedclient;
     }
 
     HttpContext
@@ -916,79 +906,155 @@ public class HTTPSession implements AutoCloseable
     }
 
     //////////////////////////////////////////////////
-    // Possibly authenticating proxy
-
-    // All proxy activity goes thru here
-    void
-    setProxy(Proxy proxy)
-    {
-        if(sessionClient == null) return;
-        if(proxy != null && proxy.host != null)
-            localsettings.setParameter(PROXY, proxy);
-    }
-
-    //////////////////////////////////////////////////
-    // External API
-
-    public void
-    setProxy(String host, int port)
-    {
-        Proxy proxy = new Proxy();
-        proxy.host = host;
-        proxy.port = port;
-        setProxy(proxy);
-    }
-
-    //////////////////////////////////////////////////
     // Authorization
     // per-session versions of the global accessors
 
     /**
-     * @param url
      * @param provider
      * @throws HTTPException
      */
     public void
-    setCredentialsProvider(String url, CredentialsProvider provider)
+    setCredentialsProvider(CredentialsProvider provider)
             throws HTTPException
     {
-        if(url == null || provider == null)
-            throw new IllegalArgumentException("null argument");
-        setCredentialsProvider(HTTPAuthUtil.urlToScope(url, HTTPAuthSchemes.BASIC), provider);
-    }
-
-    public void
-    setCredentialsProvider(AuthScope scope, CredentialsProvider provider)
-            throws HTTPException
-    {
-        if(provider == null || scope == null || scope.getScheme() == null)
-            throw new IllegalArgumentException("null argument");
-        authlocal.insert(scope, provider);
+        if(provider == null) throw new IllegalArgumentException("null argument");
+        setCredentialsProvider(HTTPAuthSchemes.BASIC, provider);
     }
 
     /**
      * It is convenient to be able to directly set the Credentials
      * (not the provider) when those credentials are fixed.
      *
-     * @param url
      * @param creds
      * @throws HTTPException
      */
     public void
-    setCredentials(String url, Credentials creds)
+    setCredentials(Credentials creds)
             throws HTTPException
     {
+        if(creds == null) throw new IllegalArgumentException("null argument");
         CredentialsProvider provider = new HTTPConstantProvider(creds);
-        setCredentialsProvider(url, provider);
+        setCredentialsProvider(provider);
     }
 
-    // do an actual execution
-    protected HttpResponse
-    execute(HttpRequestBase request)
-            throws IOException
+    public void
+    setCredentialsProvider(HTTPAuthSchemes scheme, CredentialsProvider provider)
+            throws HTTPException
     {
-        HttpResponse response = sessionClient.execute(request, this.execcontext);
-        return response;
+        if(provider == null || scheme == null) throw new IllegalArgumentException("null argument");
+        localsettings.setParameter.setParameter(CREDENTIALS, new AuthPair(scope, provider));
+    }
+
+    //////////////////////////////////////////////////
+    // Execution (do an actual execution)
+
+    // Package visible
+
+    /**
+     * Called primarily from HTTPMethod to do the bulk
+     * of the execution. Assumes HTTPMethod
+     * has inserted its headers into request.
+     *
+     * @param request the execution request
+     */
+
+    HttpClientContext
+    execute(HTTPMethod method, HttpRequestBase request)
+            throws HTTPException
+    {
+        try {
+            this.cachedURL = request.getURI();
+        } catch (URISyntaxException mue) {
+            throw new HTTPException(mue);
+        }
+        RequestConfig.Builder rb = RequestConfig.custom();
+        HttpHost target = httpHostFor(this.cachedURL);
+
+        synchronized (this) {// keep coverity happy
+            //Merge Settings;
+            Settings merged = merge(globalsettings, localsettings);
+            configureRequest(request, rb, merged);
+            if(!this.cachevalid) {
+                HttpClientBuilder cb = HttpClients.custom();
+                configClient(cb, merged);
+                setAuthentication(cb, rb, merged);
+                this.cachedclient = cb.build();
+                this.cachevalid = true;
+            }
+        }
+        // Save relevant info in the HTTPMethod object
+        RequestConfig rc = rb.build();
+        method.setConfig(rc);
+        request.setConfig(rc);
+        CloseableHttpResponse response;
+        try {
+            response = cachedclient.execute(target, request, this.execcontext);
+        } catch (IOException ioe) {
+            throw new HTTPException(ioe);
+        }
+        int code = response.getStatusLine().getStatusCode();
+        return this.execcontext;
+    }
+
+
+    protected void
+    configClient(HttpClientBuilder cb, Settings settings)
+            throws HTTPException
+    {
+        // Set retries
+        cb.setRetryHandler(new DefaultHttpRequestRetryHandler(DFALTRETRIES, false));
+        cb.setServiceUnavailableRetryStrategy(new DefaultServiceUnavailableRetryStrategy(DFALTUNAVAILRETRIES, DFALTUNAVAILINTERVAL));
+        setInterceptors(cb);
+    }
+
+
+    /**
+     * Handle authentication.
+     *
+     * @param cb
+     * @param rb
+     * @param settings
+     * @throws HTTPException
+     */
+
+    synchronized protected void
+    setAuthentication(HttpClientBuilder cb, RequestConfig.Builder rb, Settings settings)
+            throws HTTPException
+    {
+        // Creat a authscope from the scope url
+        String[] principalp = new String[1];
+        if(this.cachedURI == null)
+            this.cachedscope = HTTPAuthScope.ANY;
+        else
+            this.cachedscope = HTTPAuthScope.urlToScope(HTTPAuthPolicy.BASIC, this.cachedURL);
+
+        cb.setDefaultCredentialsProvider(hap);
+
+        try {
+            if(truststore != null || keystore != null) {
+                SSLContextBuilder builder = SSLContexts.custom();
+                if(truststore != null) {
+                    builder.loadTrustMaterial(truststore,
+                            new TrustSelfSignedStrategy());
+                }
+                if(keystore != null) {
+                    builder.loadKeyMaterial(keystore, keypassword.toCharArray());
+                }
+                SSLContext sslcxt = builder.build();
+                SSLConnectionSocketFactory sslsf = new SSLConnectionSocketFactory(sslcxt);
+
+                cb.setSSLSocketFactory(sslsf);
+
+            }
+        } catch (KeyStoreException ke) {
+            throw new HTTPException(ke);
+        } catch (NoSuchAlgorithmException nsae) {
+            throw new HTTPException(nsae);
+        } catch (KeyManagementException kme) {
+            throw new HTTPException(kme);
+        } catch (UnrecoverableEntryException uee) {
+            throw new HTTPException(uee);
+        }
     }
 
     //////////////////////////////////////////////////

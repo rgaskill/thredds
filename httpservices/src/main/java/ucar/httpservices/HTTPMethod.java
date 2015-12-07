@@ -354,12 +354,6 @@ public class HTTPMethod implements AutoCloseable
                 request.setHeader(HEADER_USERAGENT, value.toString());
             } else if(key.equals(COMPRESSION)) {
                 request.setHeader(ACCEPT_ENCODING, value.toString());
-            } else if(key.equals(PROXY)) {
-                Proxy proxy = (Proxy) value;
-                if(session.sessionClient != null && proxy != null && proxy.host != null) {
-                    HttpHost httpproxy = new HttpHost(proxy.host, proxy.port);
-                    session.sessionClient.getParams().setParameter(PROXY, httpproxy);
-                }
             } else {
                 throw new HTTPException("Unexpected setting name: " + key);
             }
