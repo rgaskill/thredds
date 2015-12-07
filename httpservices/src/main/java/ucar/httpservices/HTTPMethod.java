@@ -71,7 +71,7 @@ import static ucar.httpservices.HTTPSession.*;
  * <p/>
  * <li> Close the method.
  * </ol>
- * In practice, one one has an HTTPMethod instance, one can
+ * In practice, one has an HTTPMethod instance, one can
  * repeat the steps 2-5. Of course this assumes that one is
  * doing the same kind of action (e.g. GET).
  * <p/>
@@ -79,7 +79,7 @@ import static ucar.httpservices.HTTPSession.*;
  * <ul>
  * <li> An HTTPSession instance (optional).
  * <p/>
- * <li> A URL.
+ * <li> A URL. 
  * </ul>
  * An HTTPMethod instance is assumed to be operating in the context
  * of an HTTPSession instance as specified by the session argument.
@@ -165,6 +165,9 @@ public class HTTPMethod implements AutoCloseable
     protected HttpRequestBase request = null;
     protected HttpResponse response = null;
 
+    protected HttpClientContext execcontext = null;
+    protected RequestConfig config = null;
+
     //////////////////////////////////////////////////
     // Constructor(s)
 
@@ -240,7 +243,8 @@ public class HTTPMethod implements AutoCloseable
         return method;
     }
 
-    protected void setcontent(HttpRequestBase request)
+    protected void
+    setcontent(HttpRequestBase request)
     {
         switch (this.methodkind) {
         case Put:
@@ -259,6 +263,14 @@ public class HTTPMethod implements AutoCloseable
         }
         this.content = null; // do not reuse
     }
+
+    //////////////////////////////////////////////////
+    // Execution support
+
+    /**
+     * Create a request, add headers, and content,
+     * then send to HTTPSession to do the bulk of the work.
+     */
 
     public int execute()
         throws HTTPException
@@ -291,22 +303,12 @@ public class HTTPMethod implements AutoCloseable
             //httpclient.setHttpRequestRetryHandler(myRetryHandler);
             //request.getParams().setParameter(HttpMethodParams.RETRY_HANDLER, new RetryHandler());
 
-            //todo: get the protocol and port
-            //URL hack = new URL(this.legalurl);
-            //Protocol handler = session.getProtocol(hack.getProtocol(),
-            //    hack.getPort());
-            //HostConfiguration hc = session.sessionClient.getHostConfiguration();
-            //hc = new HostConfiguration(hc);
-            //hc.setHost(hack.getHost(), hack.getPort(), handler);
-
-            this.response = session.execute(request);
+            this.execcontext = session.execute(this,request);
+	    this.request = this.execcontext.getRequest();
+            this.response = this.execcontext.getResponse();
             int code = response.getStatusLine().getStatusCode();
 
             // On authorization error, clear entries from the credentials cache
-            if(code == HttpStatus.SC_UNAUTHORIZED
-                || code == HttpStatus.SC_PROXY_AUTHENTICATION_REQUIRED) {
-                HTTPCachingProvider.invalidate(scope);
-            }
 
             return code;
 
@@ -618,16 +620,10 @@ public class HTTPMethod implements AutoCloseable
 
     // Convenience methods to minimize changes elsewhere
 
-    public void setFollowRedirects(boolean tf)
-    {
-        //ignore ; always done
-    }
-
     public String getResponseCharSet()
     {
         return "UTF-8";
     }
-
 
     public HTTPSession
     getSession()
@@ -650,6 +646,9 @@ public class HTTPMethod implements AutoCloseable
     {
         return this.closed;
     }
+
+
+
 
     /**
      * Test that the given url is "compatible" with the

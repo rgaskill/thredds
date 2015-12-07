@@ -63,9 +63,10 @@ abstract public class HTTPUtil
         protected HttpResponse response = null;
         protected boolean printheaders = false;
 
-        public void setPrint(boolean tf)
+        public InterceptCommon setPrint(boolean tf)
         {
             this.printheaders = tf;
+	    return this;
         }
 
         public void
@@ -221,6 +222,7 @@ abstract public class HTTPUtil
             throw new IOException("Cannot create temp file", e);
         }
     }
+
 
     /**
      * @return {@code true} if the objects are equal or both null
