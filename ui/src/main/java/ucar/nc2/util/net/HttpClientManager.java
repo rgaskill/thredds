@@ -278,8 +278,8 @@ public class HttpClientManager
             }
 
             try (HTTPMethod m = HTTPFactory.Get(useSession, urlencoded)) {
-                m.setRequestHeader("Accept-Encoding", "gzip,deflate");
-                m.setRequestHeader("Range", "bytes=" + start + "-" + end);
+                m.setCompression("gzip,deflate");
+                m.setRange(start,end);
 
                 int status = m.execute();
                 if((status != 200) && (status != 206)) {

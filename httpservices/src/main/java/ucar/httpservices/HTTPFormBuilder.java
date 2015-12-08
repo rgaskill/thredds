@@ -37,6 +37,12 @@ import org.apache.http.HttpEntity;
 import org.apache.http.NameValuePair;
 import org.apache.http.client.entity.UrlEncodedFormEntity;
 import org.apache.http.entity.ContentType;
+import org.apache.http.entity.mime.HttpMultipartMode;
+import org.apache.http.entity.mime.MultipartEntityBuilder;
+import org.apache.http.entity.mime.content.ByteArrayBody;
+import org.apache.http.entity.mime.content.ContentBody;
+import org.apache.http.entity.mime.content.FileBody;
+import org.apache.http.entity.mime.content.StringBody;
 import org.apache.http.message.BasicNameValuePair;
 
 import java.io.File;
@@ -227,11 +233,7 @@ public class HTTPFormBuilder
             ContentBody body = null;
             switch (sort) {
             case TEXT:
-                try {
-                    body = new StringBody(field.value.toString());
-                } catch (UnsupportedEncodingException e) {
-                    assert false;
-                }
+                body = new StringBody(field.value.toString(), ct);
                 break;
             case BYTES:
                 body = new ByteArrayBody((byte[]) field.value, field.name);
@@ -249,8 +251,7 @@ public class HTTPFormBuilder
                 }
                 break;
             case FILE:
-                body = new FileBody((File) field.value, field.name,
-                        Sort.mimetype(sort), "US-ASCII");
+                body = new FileBody((File) field.value, ct, field.name);
                 break;
             }
             mpb.addPart(field.fieldname, body);

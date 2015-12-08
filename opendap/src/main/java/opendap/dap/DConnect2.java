@@ -267,11 +267,11 @@ public class DConnect2 implements AutoCloseable
             try (HTTPMethod method = HTTPFactory.Get(_session,urlString)) {
 
                 if(acceptCompress)
-                    method.setRequestHeader("Accept-Encoding", "deflate,gzip");
+                    method.setCompression("deflate,gzip");
 
                 // enable sessions
                 if(allowSessions)
-                    method.setRequestHeader("X-Accept-Session", "true");
+                    method.setUseSessions(true);
 
                 int statusCode = method.execute();
 

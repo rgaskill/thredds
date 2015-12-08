@@ -34,6 +34,7 @@
 package ucar.httpservices;
 
 import org.apache.http.*;
+import org.apache.http.message.BasicHeader;
 import org.apache.http.protocol.HttpContext;
 
 import java.io.*;
@@ -309,4 +310,19 @@ abstract public class HTTPUtil
             }
         }
     }
+
+    static protected HTTPSession.Settings
+       merge(HTTPSession.Settings globalsettings, HTTPSession.Settings localsettings)
+       {
+           // merge global and local settings; local overrides global.
+           HTTPSession.Settings merge = new HTTPSession.Settings();
+           for(String key : globalsettings.getKeys()) {
+               merge.setParameter(key, globalsettings.getParameter(key));
+           }
+           for(String key : localsettings.getKeys()) {
+               merge.setParameter(key, localsettings.getParameter(key));
+           }
+           return merge;
+       }
+
 }

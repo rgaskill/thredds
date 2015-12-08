@@ -147,12 +147,12 @@ abstract public class HTTPAuthScope
      */
 
     static public AuthScope
-    urlToScope(String authscheme, URL url)
+    urlToScope(String authscheme, URI url)
         throws HTTPException
     {
         AuthScope scope = new AuthScope(url.getHost(),
             url.getPort(),
-            HTTPUtil.makerealm(url),
+            HTTPAuthUtil.makerealm(url),
             authscheme);
         return scope;
     }
@@ -169,9 +169,9 @@ abstract public class HTTPAuthScope
         throws HTTPException
     {
         try {
-            URL u = new URL(url);
+            URI u = HTTPUtil.parseToURI(url);
             return urlToScope(authscheme,u);
-        } catch (MalformedURLException mue) {
+        } catch (URISyntaxException mue) {
             throw new HTTPException(mue);
         }
     }

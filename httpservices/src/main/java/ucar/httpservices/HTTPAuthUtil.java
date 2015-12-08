@@ -99,12 +99,12 @@ abstract public class HTTPAuthUtil
             URI uri = HTTPUtil.parseToURI(surl);
             AuthScope scope = new AuthScope(uri.getHost(),
                 uri.getPort(),
-                HTTPAuthUtil.makerealm(uri.toURL()),
+                HTTPAuthUtil.makerealm(uri),
                 authscheme);
             return scope;
         } catch (IllegalArgumentException e) {
             return null;
-        } catch (URISyntaxException | MalformedURLException mue) {
+        } catch (URISyntaxException mue) {
             throw new HTTPException(mue);
         }
     }
@@ -198,8 +198,7 @@ abstract public class HTTPAuthUtil
                 scope.getScheme());
     }
 
-
-    static public String makerealm(URL url)
+    static public String makerealm(URI url)
     {
         return makerealm(url.getHost(), url.getPort());
     }
