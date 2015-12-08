@@ -39,6 +39,8 @@ import java.net.SocketTimeoutException;
 
 public class EchoService implements Runnable, Closeable
 {
+    static boolean DEBUG = true;
+
     int port = 4444;
 
     public volatile boolean terminate = false;
@@ -94,9 +96,12 @@ public class EchoService implements Runnable, Closeable
                         if(avail == 0) break;
                     }
                     byte[] in = bos.toByteArray();
-                    if(UnitTestCommon.DEBUG) {
+                    if(DEBUG) {
                         String body = new String(in, "UTF-8");
-                        System.err.println("EchoService.RAW:\n" + body);
+                        String[] lines = body.split("[\n]");
+                        System.err.println("EchoService.RAW:\n");
+                        for(String line: lines)
+                            System.err.println("\t> "+line);
                     }
                     System.err.println(
                             "Closing connection with client");

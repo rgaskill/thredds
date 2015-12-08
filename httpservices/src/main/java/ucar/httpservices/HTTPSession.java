@@ -43,6 +43,7 @@ import org.apache.http.client.entity.DeflateDecompressingEntity;
 import org.apache.http.client.entity.GzipDecompressingEntity;
 import org.apache.http.client.entity.InputStreamFactory;
 import org.apache.http.client.methods.CloseableHttpResponse;
+import org.apache.http.client.methods.HttpUriRequest;
 import org.apache.http.client.methods.RequestBuilder;
 import org.apache.http.client.params.AllClientPNames;
 import org.apache.http.client.protocol.HttpClientContext;
@@ -790,7 +791,7 @@ public class HTTPSession implements AutoCloseable
         if(scope == null) throw new IllegalArgumentException("null argument");
         this.scope = scope;
         this.scopeURI = HTTPAuthUtil.scopeToURI(scope);
-        this.scopeHost = new HttpHost(this.scopeURI.getHost());
+        this.scopeHost = new HttpHost(this.scopeURI.getHost(),this.scopeURI.getPort(),this.scopeURI.getScheme());
         this.cachevalid = false; // Force build on first use
         this.sessioncontext.setCookieStore(new BasicCookieStore());
     }
@@ -956,19 +957,13 @@ public class HTTPSession implements AutoCloseable
 
     // make package specific
 
-    HttpContext
-    getContext()
-    {
-        return this.sessioncontext;
-    }
-
     HttpClient
     getClient()
     {
         return this.cachedclient;
     }
 
-    HttpContext
+    HttpClientContext
     getExecutionContext()
     {
         return this.sessioncontext;
@@ -1104,11 +1099,11 @@ public class HTTPSession implements AutoCloseable
      * @param method
      * @param methoduri
      * @param rb
-     * @return
+     * @return  CloseableHttpResponse
      * @throws HTTPException
      */
 
-    HttpClientContext
+    CloseableHttpResponse
     execute(HTTPMethod method, URI methoduri, RequestBuilder rb)
             throws HTTPException
     {
@@ -1131,12 +1126,12 @@ public class HTTPSession implements AutoCloseable
         // Save relevant info in the HTTPMethod object
         CloseableHttpResponse response;
         try {
-            response = cachedclient.execute(target, rb.build(), this.sessioncontext);
+            HttpUriRequest hur = rb.build();
+            response = cachedclient.execute(target, hur, this.sessioncontext);
         } catch (IOException ioe) {
             throw new HTTPException(ioe);
         }
-        int code = response.getStatusLine().getStatusCode();
-        return this.sessioncontext;
+        return response;
     }
 
     protected void

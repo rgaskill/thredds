@@ -37,7 +37,6 @@ import org.junit.Assert;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
 import ucar.httpservices.*;
-import ucar.nc2.util.net.EchoService;
 import ucar.nc2.util.UnitTestCommon;
 import ucar.unidata.test.util.NeedsExternalResource;
 
@@ -58,7 +57,7 @@ public class TestFormBuilder extends UnitTestCommon
     //////////////////////////////////////////////////
     // Constants
 
-    static final boolean DEBUG = false;
+    static final boolean DEBUG = true;
 
     static final int SIMPLEECHOPORT = 4444;
     static final int MULTIECHOPORT = 4445;
@@ -314,7 +313,7 @@ public class TestFormBuilder extends UnitTestCommon
     parseheaderline(String line)
     {
         Map<String, String> map = new HashMap<>();
-        map.put("PREFIX",""); // default
+        map.put("PREFIX", ""); // default
         if(line == null || line.length() == 0)
             return map;
         int i = line.indexOf(":");

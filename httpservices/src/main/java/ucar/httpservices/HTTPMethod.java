@@ -245,17 +245,19 @@ public class HTTPMethod implements AutoCloseable
     protected void
     setheaders(RequestBuilder rb)
     {
-        if(range != null)
+        if(range != null) {
             rb.addHeader("Range", "bytes=" + range[0] + "-" + range[1]);
+            range = null;
+        }
         Object value = session.getSettings().get(HTTPSession.USESESSIONS);
-        if(value != null && ((Boolean)value))
+        if(value != null && ((Boolean) value))
             rb.addHeader("X-Accept-Session", "true");
         // Add any defined headers
         if(this.headers.size() > 0) {
-	    for(Header h : this.headers) {
-		rb.addHeader(h);
+            for(Header h : this.headers) {
+                rb.addHeader(h);
             }
-	}	    
+        }
     }
 
     protected void
@@ -301,12 +303,12 @@ public class HTTPMethod implements AutoCloseable
         try {
             // Apply settings
             setcontent(rb);
-	    // Add any user defined headers
-	    setheaders(rb);
+            // Add any user defined headers
+            setheaders(rb);
 
-            HttpClientContext execcontext = session.execute(this, methodurl, rb);
+            this.response = session.execute(this, methodurl, rb);
+            HttpClientContext execcontext = session.getExecutionContext();
             this.request = (HttpUriRequest) execcontext.getRequest();
-            this.response = execcontext.getResponse();
             int code = response.getStatusLine().getStatusCode();
             return code;
         } catch (Exception ie) {
@@ -576,7 +578,7 @@ public class HTTPMethod implements AutoCloseable
 
     //////////////////////////////////////////////////
     // Deprecated but for back compatibility
-    
+
     protected List<Header> headers = new ArrayList<Header>();
 
     @Deprecated
