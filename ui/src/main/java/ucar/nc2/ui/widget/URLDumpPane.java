@@ -314,7 +314,7 @@ public class URLDumpPane extends TextHistoryPane {
           throw new IOException("Unsupported command: " + cmd);
       }
 
-      m.setRequestHeader("Accept-Encoding", "gzip,deflate");
+      m.setCompression("gzip,deflate");
 
       /* FIX
       appendLine("HttpClient " + m.getName() + " " + urlString);

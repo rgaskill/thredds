@@ -369,17 +369,19 @@ public class HTTPSession implements AutoCloseable
 
     static {
         CEKILL = new HTTPUtil.ContentEncodingInterceptor();
+        contentDecoderMap = new HashMap<String, InputStreamFactory>();
         contentDecoderMap.put("zip", new ZipStreamFactory());
         contentDecoderMap.put("gzip", new GZIPStreamFactory());
         // SSL contexts are handled at the global level only
+        setGlobalSSLAuth();
+        connmgr = new PoolingHttpClientConnectionManager(sslregistry);
         globalsettings = new Settings();
         setDefaults(globalsettings);
         setGlobalUserAgent(DFALTUSERAGENT);
         setGlobalThreadCount(DFALTTHREADCOUNT);
         setGlobalConnectionTimeout(DFALTCONNTIMEOUT);
         setGlobalSoTimeout(DFALTSOTIMEOUT);
-        setGlobalSSLAuth();
-        connmgr = new PoolingHttpClientConnectionManager(sslregistry);
+
     }
 
     //////////////////////////////////////////////////////////////////////////
@@ -470,7 +472,7 @@ public class HTTPSession implements AutoCloseable
             throws HTTPException
     {
         if(provider == null) throw new IllegalArgumentException("null argument");
-        setGlobalCredentialsProvider(HTTPAuthSchemes.BASIC, provider);
+        setGlobalCredentialsProvider(provider, HTTPAuthSchemes.BASIC);
     }
 
     /**
@@ -493,12 +495,44 @@ public class HTTPSession implements AutoCloseable
      * from the Credentials/CredentialsProvider, but no.
      */
     static public void
-    setGlobalCredentialsProvider(String scheme, CredentialsProvider provider)
+    setGlobalCredentialsProvider(CredentialsProvider provider, String scheme)
             throws HTTPException
     {
         if(provider == null || scheme == null)
             throw new IllegalArgumentException("null argument");
         globalsettings.setParameter(CREDENTIALS, new AuthPair(scheme, provider));
+    }
+
+    /**
+     * Following are for back compatibility
+     */
+
+    @Deprecated
+    static public void
+    setGlobalCredentialsProvider(AuthScope scope, CredentialsProvider provider)
+            throws HTTPException
+    {
+        setGlobalCredentialsProvider(provider);
+    }
+
+    @Deprecated
+    static public void
+    setGlobalCredentialsProvider(String url, CredentialsProvider provider)
+            throws HTTPException
+    {
+        if(url == null || provider == null)
+            throw new IllegalArgumentException("null argument");
+        AuthScope scope = HTTPAuthUtil.urlToScope(url, HTTPAuthSchemes.BASIC);
+        setGlobalCredentialsProvider(scope, provider);
+    }
+
+    @Deprecated
+    static public void
+    setGlobalCredentials(String url, Credentials creds)
+            throws HTTPException
+    {
+        CredentialsProvider provider = new HTTPConstantProvider(creds);
+        setGlobalCredentialsProvider(url, provider);
     }
 
     //////////////////////////////////////////////////
@@ -630,6 +664,8 @@ public class HTTPSession implements AutoCloseable
     static synchronized void
     setGlobalSSLAuth()
     {
+        RegistryBuilder rb = RegistryBuilder.<ConnectionSocketFactory>create();
+
         String keypassword = cleanproperty("keystorepassword");
         String keypath = cleanproperty("keystore");
         String trustpassword = cleanproperty("truststorepassword");
@@ -637,8 +673,10 @@ public class HTTPSession implements AutoCloseable
 
         if(keypath == null && trustpath == null) {
             HTTPSession.log.info(String.format("HTTPSession: no trust/key store properties found"));
+            sslregistry = rb.build();
             return;
         }
+
         // load the stores
         try {
             truststore = KeyStore.getInstance(KeyStore.getDefaultType());
@@ -671,11 +709,9 @@ public class HTTPSession implements AutoCloseable
             if(keystore != null)
                 sslbuilder.loadKeyMaterial(keystore, keypassword.toCharArray());
             globalsslfactory = new SSLConnectionSocketFactory(scxt, verifier);
-            Registry<ConnectionSocketFactory> registry =
-                    RegistryBuilder.<ConnectionSocketFactory>create()
-                            .register("https", globalsslfactory)
-                            .build();
-            sslregistry = registry;
+            rb.register("https", globalsslfactory);
+
+            sslregistry = rb.build();
         } catch (KeyStoreException
                 | NoSuchAlgorithmException
                 | UnrecoverableEntryException e) {
@@ -843,6 +879,7 @@ public class HTTPSession implements AutoCloseable
 
     /**
      * Extract the sessionid cookie value
+     *
      * @return sessionid string
      */
     public String getSessionID()
@@ -992,7 +1029,7 @@ public class HTTPSession implements AutoCloseable
             throws HTTPException
     {
         if(provider == null) throw new IllegalArgumentException("null argument");
-        setCredentialsProvider(HTTPAuthSchemes.BASIC, provider);
+        setCredentialsProvider(provider, HTTPAuthSchemes.BASIC);
     }
 
     /**
@@ -1012,11 +1049,46 @@ public class HTTPSession implements AutoCloseable
     }
 
     public void
-    setCredentialsProvider(String scheme, CredentialsProvider provider)
+    setCredentialsProvider(CredentialsProvider provider, String scheme)
             throws HTTPException
     {
         if(provider == null || scheme == null) throw new IllegalArgumentException("null argument");
         localsettings.setParameter(CREDENTIALS, new AuthPair(scheme, provider));
+    }
+
+    /**
+     * For backward compatibility
+     */
+
+    @Deprecated
+        public void
+        setCredentials(String url, Credentials creds)
+                throws HTTPException
+        {
+            if(url == null || creds == null)
+                throw new IllegalArgumentException("null argument");
+            CredentialsProvider provider = new HTTPConstantProvider(creds);
+            setCredentialsProvider(url, provider);
+        }
+    @Deprecated
+    public void
+    setCredentialsProvider(String url, CredentialsProvider provider)
+            throws HTTPException
+    {
+        if(url == null || provider == null)
+            throw new IllegalArgumentException("null argument");
+        AuthScope scope = HTTPAuthUtil.urlToScope(url, HTTPAuthSchemes.BASIC);
+        setCredentialsProvider(scope, provider);
+    }
+
+    @Deprecated
+    public void
+    setCredentialsProvider(AuthScope scope, CredentialsProvider provider)
+            throws HTTPException
+    {
+        if(provider == null || scope == null || scope.getScheme() == null)
+            throw new IllegalArgumentException("null argument");
+        setCredentialsProvider(provider);
     }
 
     //////////////////////////////////////////////////

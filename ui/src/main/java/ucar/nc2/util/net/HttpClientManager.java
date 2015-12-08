@@ -63,7 +63,7 @@ public class HttpClientManager
     static public void init(CredentialsProvider provider, String userAgent)
     {
         if(provider != null) try {
-            HTTPSession.setGlobalCredentialsProvider(provider,HTTPAuthSchemes.BASIC);
+            HTTPSession.setGlobalCredentialsProvider(provider);
         } catch (HTTPException e) {};
         if(userAgent != null)
             HTTPSession.setGlobalUserAgent(userAgent + "/NetcdfJava/HttpClient");
@@ -159,7 +159,7 @@ public class HttpClientManager
 
             try (HTTPMethod m = HTTPFactory.Get(useSession, urlencoded)) {
                 m.setFollowRedirects(true);
-                m.setRequestHeader("Accept-Encoding", "gzip,deflate");
+                m.setCompression("gzip,deflate");
 
                 int status = m.execute();
                 if(status != 200) {
@@ -226,7 +226,7 @@ public class HttpClientManager
                 useSession = HTTPFactory.newSession(urlencoded);
 
             HTTPMethod m = HTTPFactory.Get(useSession, urlencoded);
-            m.setRequestHeader("Accept-Encoding", "gzip,deflate");
+            m.setCompression("gzip,deflate");
 
             int status = m.execute();
 

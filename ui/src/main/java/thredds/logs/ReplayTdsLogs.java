@@ -155,7 +155,7 @@ public class ReplayTdsLogs {
       String urlencoded = server + unescapedForm;
       // String urlencoded = server + URLnaming.escapeQuery(unescapedForm);
       try (HTTPMethod method = HTTPFactory.Get(urlencoded)) {  // escape the query part
-        method.setRequestHeader(HTTPSession.HEADER_USERAGENT, USER_AGENT);
+        method.setUserAgent(USER_AGENT);
         //out2.format("send %s %n", method.getPath());
         statusCode = method.execute();
 
@@ -218,7 +218,7 @@ public class ReplayTdsLogs {
       if (serverLive == null) return true;
       try (HTTPMethod method = HTTPFactory.Get(serverLive + itask.log.path)) {
         out2.format("send %s %n", method.getPath());
-        method.setRequestHeader(HTTPSession.HEADER_USERAGENT, USER_AGENT);
+        method.setUserAgent(USER_AGENT);
         int statusCode = method.execute();
 
         InputStream is = method.getResponseBodyAsStream();
@@ -721,7 +721,7 @@ public class ReplayTdsLogs {
       // url is used elsewhere in this code.
       // todo - replace string version of the url with something more robust, like a URL object.
       serverToTest =  method.getSession().getSessionURL();
-      method.setRequestHeader(HTTPSession.HEADER_USERAGENT, USER_AGENT);
+      method.setUserAgent(USER_AGENT);
       method.execute();
       method.close();
     } catch (HTTPException httpe) {

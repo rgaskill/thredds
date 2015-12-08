@@ -40,6 +40,7 @@ import org.apache.http.client.methods.HttpOptions;
 import org.apache.http.client.methods.HttpUriRequest;
 import org.apache.http.client.methods.RequestBuilder;
 import org.apache.http.client.protocol.HttpClientContext;
+import org.apache.http.message.BasicHeader;
 import org.apache.http.message.BasicHttpResponse;
 import org.apache.http.util.EntityUtils;
 
@@ -48,6 +49,8 @@ import java.io.InputStream;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.charset.Charset;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Set;
 
 import static ucar.httpservices.HTTPSession.SO_TIMEOUT;
@@ -217,26 +220,25 @@ public class HTTPMethod implements AutoCloseable
         if(this.methodurl == null)
             throw new HTTPException("Null url");
         RequestBuilder rb = null;
-        rb.setUri(this.methodurl);
         switch (this.methodkind) {
         case Put:
-            rb.put();
+            rb = RequestBuilder.put();
             break;
         case Post:
-            rb.post();
-            break;
-        case Get:
-            rb.get();
+            rb = RequestBuilder.post();
             break;
         case Head:
-            rb.head();
+            rb = RequestBuilder.head();
             break;
         case Options:
-            rb.options();
+            rb = RequestBuilder.options();
             break;
+        case Get:
         default:
+            rb = RequestBuilder.get();
             break;
         }
+        rb.setUri(this.methodurl);
         return rb;
     }
 
@@ -245,8 +247,15 @@ public class HTTPMethod implements AutoCloseable
     {
         if(range != null)
             rb.addHeader("Range", "bytes=" + range[0] + "-" + range[1]);
-        if((Boolean)session.getSettings().get(HTTPSession.USESESSIONS))
+        Object value = session.getSettings().get(HTTPSession.USESESSIONS);
+        if(value != null && ((Boolean)value))
             rb.addHeader("X-Accept-Session", "true");
+        // Add any defined headers
+        if(this.headers.size() > 0) {
+	    for(Header h : this.headers) {
+		rb.addHeader(h);
+            }
+	}	    
     }
 
     protected void
@@ -292,7 +301,9 @@ public class HTTPMethod implements AutoCloseable
         try {
             // Apply settings
             setcontent(rb);
-            // Set he
+	    // Add any user defined headers
+	    setheaders(rb);
+
             HttpClientContext execcontext = session.execute(this, methodurl, rb);
             this.request = (HttpUriRequest) execcontext.getRequest();
             this.response = execcontext.getResponse();
@@ -302,44 +313,6 @@ public class HTTPMethod implements AutoCloseable
             throw new HTTPException(ie);
         }
     }
-
-    /*
-    protected void
-    configure()
-            throws HTTPException
-    {
-        // merge global and local settings.
-        Settings merge;
-        synchronized (this) {
-            merge = HTTPUtil.merge(session.getGlobalSettings(),session.getSettings());
-        }
-        for(String key : merge.getKeys()) {
-            Object value = merge.getParameter(key);
-            HttpParams hmp = request.getParams();
-
-            if(key.equals(ALLOW_CIRCULAR_REDIRECTS)) {
-                hmp.setParameter(ALLOW_CIRCULAR_REDIRECTS, (Boolean) value);
-            } else if(key.equals(HANDLE_REDIRECTS)) {
-                hmp.setParameter(HANDLE_REDIRECTS, (Boolean) value);
-            } else if(key.equals(HANDLE_AUTHENTICATION)) {
-                hmp.setParameter(HANDLE_AUTHENTICATION, (Boolean) value);
-            } else if(key.equals(MAX_REDIRECTS)) {
-                hmp.setParameter(MAX_REDIRECTS, (Integer) value);
-            } else if(key.equals(SO_TIMEOUT)) {
-                hmp.setParameter(SO_TIMEOUT, (Integer) value);
-            } else if(key.equals(CONN_TIMEOUT)) {
-                hmp.setParameter(CONN_TIMEOUT, (Integer) value);
-                // NOTE: Following modifying request, not builder
-            } else if(key.equals(USER_AGENT)) {
-                request.setHeader(HEADER_USERAGENT, value.toString());
-            } else if(key.equals(COMPRESSION)) {
-                request.setHeader(ACCEPT_ENCODING, value.toString());
-            } else {
-                throw new HTTPException("Unexpected setting name: " + key);
-            }
-        }
-    }
-    */
 
     /**
      * Calling close will force the method to close, and will
@@ -467,33 +440,6 @@ public class HTTPMethod implements AutoCloseable
     {
         return getResponseAsString("UTF-8");
     }
-
-    /*
-    public void setMethodHeaders(List<Header> headers) throws HTTPException
-    {
-        try {
-            for(Header h : headers) {
-                this.headers.add(h);
-            }
-        } catch (Exception e) {
-            throw new HTTPException(e);
-        }
-    }
-
-    public void setRequestHeader(String name, String value) throws HTTPException
-    {
-        setRequestHeader(new BasicHeader(name, value));
-    }
-
-    public void setRequestHeader(Header h) throws HTTPException
-    {
-        try {
-            headers.add(h);
-        } catch (Exception e) {
-            throw new HTTPException("cause", e);
-        }
-    }
-    */
 
     public Header getRequestHeader(String name)
     {
@@ -628,6 +574,43 @@ public class HTTPMethod implements AutoCloseable
     }
 
 
+    //////////////////////////////////////////////////
+    // Deprecated but for back compatibility
+    
+    protected List<Header> headers = new ArrayList<Header>();
+
+    @Deprecated
+    public void
+    setMethodHeaders(List<Header> headers) throws HTTPException
+    {
+        try {
+            for(Header h : headers) {
+                this.headers.add(h);
+            }
+        } catch (Exception e) {
+            throw new HTTPException(e);
+        }
+    }
+
+    @Deprecated
+    public void
+    setRequestHeader(String name, String value) throws HTTPException
+    {
+        setRequestHeader(new BasicHeader(name, value));
+    }
+
+    @Deprecated
+    protected void
+    setRequestHeader(Header h) throws HTTPException
+    {
+        try {
+            headers.add(h);
+        } catch (Exception e) {
+            throw new HTTPException("cause", e);
+        }
+    }
+
+    //////////////////////////////////////////////////
     // Pass thru's
     public void
     setCompression(String compressors)
@@ -638,6 +621,11 @@ public class HTTPMethod implements AutoCloseable
     public void setFollowRedirects(boolean tf)
     {
         this.session.setFollowRedirects(tf);
+    }
+
+    public void setUserAgent(String agent)
+    {
+        this.session.setUserAgent(agent);
     }
 
     public void setUseSessions(boolean tf)

@@ -47,8 +47,6 @@ import org.junit.Assume;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
 import ucar.httpservices.HTTPAuthSchemes;
-import ucar.httpservices.HTTPAuthStore;
-import ucar.httpservices.HTTPCachingProvider;
 import ucar.httpservices.HTTPFactory;
 import ucar.httpservices.HTTPMethod;
 import ucar.httpservices.HTTPSession;
@@ -96,9 +94,6 @@ public class TestAuth extends UnitTestCommon
         //               new EasySSLProtocolSocketFactory(),
         //               8843));
         HTTPSession.TESTING = true;
-        HTTPCachingProvider.TESTING = true;
-        HTTPAuthStore.TESTING = true;
-
     }
 
     static public class Counter
@@ -278,7 +273,7 @@ public class TestAuth extends UnitTestCommon
 
             // Test global credentials provider
             HTTPSession.setGlobalCredentialsProvider(data.url, this.provider);
-            HTTPCachingProvider.clearCache();
+            //HTTPCachingProvider.clearCache();
             try (HTTPSession session = HTTPFactory.newSession(data.url)) {
                 this.result = invoke(session, data.url);
             }
@@ -292,7 +287,7 @@ public class TestAuth extends UnitTestCommon
             System.out.println("*** URL: " + data.url);
             provider.setPWD(data.user, data.password);
 
-            HTTPCachingProvider.clearCache();
+            //HTTPCachingProvider.clearCache();
             try (HTTPSession session = HTTPFactory.newSession(data.url)) {
                 session.setCredentialsProvider(data.url, this.provider);
                 this.result = invoke(session, data.url);
@@ -318,7 +313,7 @@ public class TestAuth extends UnitTestCommon
 
             // Test global credentials provider
             HTTPSession.setGlobalCredentials(data.url, creds);
-            HTTPCachingProvider.clearCache();
+            //HTTPCachingProvider.clearCache();
             try (HTTPSession session = HTTPFactory.newSession(data.url)) {
                 this.result = invoke(session, data.url);
             }
@@ -331,7 +326,7 @@ public class TestAuth extends UnitTestCommon
             System.out.println("Test local credentials");
             System.out.println("*** URL: " + data.url);
 
-            HTTPCachingProvider.clearCache();
+            //HTTPCachingProvider.clearCache();
             try (HTTPSession session = HTTPFactory.newSession(data.url)) {
                 session.setCredentials(data.url, creds);
                 this.result = invoke(session, data.url);
@@ -356,7 +351,7 @@ public class TestAuth extends UnitTestCommon
             // Do each test with a bad password to cause cache invalidation
             this.provider.setPWD(data.user, BADPASSWORD);
 
-            HTTPCachingProvider.clearCache();
+            //HTTPCachingProvider.clearCache();
             try (HTTPSession session = HTTPFactory.newSession(data.url)) {
                 session.setCredentialsProvider(data.url, this.provider);
                 this.result = invoke(session, data.url);
@@ -364,6 +359,7 @@ public class TestAuth extends UnitTestCommon
             pass &= (this.result.status == 401); // bad password should fail
             Assert.assertTrue("Credentials provider called: " + this.result.count, this.result.count == 1);
             // Look at the invalidation list
+            /*
             List<HTTPCachingProvider.Auth> removed = HTTPCachingProvider.getTestList();
             if(removed.size() == 1) {
                 HTTPCachingProvider.Auth triple = removed.get(0);
@@ -371,6 +367,7 @@ public class TestAuth extends UnitTestCommon
                         && triple.creds instanceof UsernamePasswordCredentials);
             } else
                 pass &= false;
+                */
             if(pass) {
                 // retry with correct password
                 this.provider.setPWD(data.user, data.password);
@@ -608,7 +605,7 @@ public class TestAuth extends UnitTestCommon
             try (HTTPMethod method = HTTPFactory.Get(session, url)) {
                 result.status = method.execute();
                 System.err.printf("\tglobal provider: status code = %d\n", result.status);
-                System.err.printf("\t|cache| = %d\n", HTTPCachingProvider.getCache().size());
+                //System.err.printf("\t|cache| = %d\n", HTTPCachingProvider.getCache().size());
                 // Get the number of calls to the credentialer
                 result.count = counter.counter();
                 // try to read in the content
