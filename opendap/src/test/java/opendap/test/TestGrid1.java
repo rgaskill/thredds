@@ -57,7 +57,7 @@ import ucar.unidata.test.util.TestDir;
  * } testgrid1
  */
 
-public class TestGrid1 extends UnitTestCommon
+public class TestGrid1 extends TestSources
 {
     static final protected String DATASET = "testgrid1.nc";
 

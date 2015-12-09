@@ -39,7 +39,7 @@ import java.net.SocketTimeoutException;
 
 public class EchoService implements Runnable, Closeable
 {
-    static boolean DEBUG = true;
+    static boolean DEBUG = false;
 
     int port = 4444;
 

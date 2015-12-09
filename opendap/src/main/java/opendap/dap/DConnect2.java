@@ -40,31 +40,30 @@
 
 package opendap.dap;
 
-import java.net.*;
-import java.io.*;
-
-import opendap.dap.parsers.*;
-
-import java.nio.charset.Charset;
-import java.util.List;
-import java.util.zip.InflaterInputStream;
-import java.util.zip.GZIPInputStream;
-
 import opendap.dap.parsers.ParseException;
-import org.apache.http.cookie.Cookie;
-import ucar.nc2.util.EscapeStrings;
-import org.apache.http.*;
-import org.apache.http.auth.*;
-import ucar.httpservices.*;
+import org.apache.http.Header;
+import org.apache.http.HttpStatus;
+import org.apache.http.auth.InvalidCredentialsException;
+import ucar.httpservices.HTTPException;
+import ucar.httpservices.HTTPFactory;
+import ucar.httpservices.HTTPMethod;
+import ucar.httpservices.HTTPSession;
+
+import java.io.*;
+import java.net.MalformedURLException;
+import java.net.URL;
+import java.nio.charset.Charset;
+import java.util.zip.GZIPInputStream;
+import java.util.zip.InflaterInputStream;
 
 /**
  * Rewritten 1/15/07 jcaron to use HttpCLient library instead of jdk UrlConnection class.
  * Need more robust redirect and authentication.
- * <p/>
+ * <p>
  * This class provides support for common DODS client-side operations such as
  * dereferencing a OPeNDAP URL, communicating network activity status
  * to the user and reading local OPeNDAP objects.
- * <p/>
+ * <p>
  * Unlike its C++ counterpart, this class does not store instances of the DAS,
  * DDS, etc. objects. Rather, the methods <code>getDAS</code>, etc. return
  * instances of those objects.
@@ -147,7 +146,7 @@ public class DConnect2 implements AutoCloseable
      *                               a valid URL, or a filename which exists on the system.
      */
     public DConnect2(String urlString, boolean acceptCompress)
-        throws HTTPException
+            throws HTTPException
     {
         int ceIndex = urlString.indexOf('?');
         if(ceIndex != -1) {
@@ -218,7 +217,7 @@ public class DConnect2 implements AutoCloseable
     /**
      * Returns the constraint expression supplied with the URL given to the
      * constructor. If no CE was given this returns an empty <code>String</code>.
-     * <p/>
+     * <p>
      * Note that the CE supplied to one of this object's constructors is
      * "sticky"; it will be used with every data request made with this object.
      * The CE passed to <code>getData</code>, however, is not sticky; it is used
@@ -243,12 +242,13 @@ public class DConnect2 implements AutoCloseable
     }
 
     /**
-     *  Return the session associated with this connection
+     * Return the session associated with this connection
+     *
      * @return this connections session (or null)
      */
     public HTTPSession getSession()
     {
-       return _session;
+        return _session;
     }
 
     /**
@@ -264,7 +264,7 @@ public class DConnect2 implements AutoCloseable
         InputStream is = null;
 
         try {
-            try (HTTPMethod method = HTTPFactory.Get(_session,urlString)) {
+            try (HTTPMethod method = HTTPFactory.Get(_session, urlString)) {
 
                 if(acceptCompress)
                     method.setCompression("deflate,gzip");
@@ -272,8 +272,14 @@ public class DConnect2 implements AutoCloseable
                 // enable sessions
                 if(allowSessions)
                     method.setUseSessions(true);
-
-                int statusCode = method.execute();
+                int statusCode;
+                for(;;) {
+                    statusCode = method.execute();
+                    if(statusCode != HttpStatus.SC_SERVICE_UNAVAILABLE)
+                        break;
+                    Thread.sleep(5000);
+                    System.err.println("Service Unavailable");
+                }
 
                 // debug
                 // if (debugHeaders) ucar.httpservices.HttpClientManager.showHttpRequestInfo(f, method);
@@ -296,7 +302,7 @@ public class DConnect2 implements AutoCloseable
                 // check if its an error
                 Header header = method.getResponseHeader("Content-Description");
                 if(header != null && (header.getValue().equals("dods-error")
-                    || header.getValue().equals("dods_error"))) {
+                        || header.getValue().equals("dods_error"))) {
                     // create server exception object
                     DAP2Exception ds = new DAP2Exception();
                     // parse the Error object from stream and throw it
@@ -349,7 +355,7 @@ public class DConnect2 implements AutoCloseable
     }
 
     static public String captureStream(InputStream is)
-        throws IOException
+            throws IOException
     {
         ByteArrayOutputStream text = new ByteArrayOutputStream();
         int b;
@@ -365,7 +371,7 @@ public class DConnect2 implements AutoCloseable
     static final byte[] tag2 = "\nData:\r\n".getBytes(UTF8);
 
     static public String captureDataDDS(InputStream is)
-        throws IOException
+            throws IOException
     {
         byte[] text = new byte[4096];
         int pos = 0;
@@ -401,7 +407,7 @@ public class DConnect2 implements AutoCloseable
 
         if(pos < taglen) return false;
 
-        for(j = 0, i = pos - taglen;i < pos;i++, j++) {
+        for(j = 0, i = pos - taglen; i < pos; i++, j++) {
             if(text[i] != tag[j]) return false;
         }
         return true;
@@ -411,7 +417,9 @@ public class DConnect2 implements AutoCloseable
     {
         if(len - pos >= n) return text;
         int newlen = len * 2 + n;
-        while(newlen < n) newlen++;
+        while(newlen < n) {
+            newlen++;
+        }
         byte[] newtext = new byte[newlen];
         System.arraycopy(text, 0, newtext, 0, len);
         return newtext;
@@ -459,7 +467,7 @@ public class DConnect2 implements AutoCloseable
         }
 
         Header[] responseHeaders = method.getResponseHeaders();
-        for(int i1 = 0;i1 < responseHeaders.length;i1++) {
+        for(int i1 = 0; i1 < responseHeaders.length; i1++) {
             Header responseHeader = responseHeaders[i1];
             if(debugHeaders) DAPNode.log.debug("  " + responseHeader);
             String key = responseHeader.getName();
@@ -740,7 +748,7 @@ public class DConnect2 implements AutoCloseable
      * @opendap.ddx.experimental
      */
     public DataDDS getDataDDX() throws MalformedURLException, IOException,
-        ParseException, DDSException, DAP2Exception
+            ParseException, DDSException, DAP2Exception
     {
 
         return getDataDDX("", new DefaultFactory());
@@ -765,7 +773,7 @@ public class DConnect2 implements AutoCloseable
      * @opendap.ddx.experimental
      */
     public DataDDS getDataDDX(String CE) throws MalformedURLException, IOException,
-        ParseException, DDSException, DAP2Exception
+            ParseException, DDSException, DAP2Exception
     {
 
         return getDataDDX(CE, new DefaultFactory());
@@ -792,7 +800,7 @@ public class DConnect2 implements AutoCloseable
      * @see BaseTypeFactory
      */
     public DataDDS getDataDDX(String CE, BaseTypeFactory btf) throws MalformedURLException, IOException,
-        ParseException, DDSException, DAP2Exception
+            ParseException, DDSException, DAP2Exception
     {
 
         DataDDXCommand command = new DataDDXCommand(btf, this.ver);
@@ -825,7 +833,7 @@ public class DConnect2 implements AutoCloseable
      * the entire DDS (but without any data) while this method returns
      * only those variables listed in the projection part of the constraint
      * expression.
-     * <p/>
+     * <p>
      * Note that if CE is an empty String then the entire dataset will be
      * returned, unless a "sticky" CE has been specified in the constructor.
      *
@@ -846,7 +854,7 @@ public class DConnect2 implements AutoCloseable
      * @throws DAP2Exception         if any error returned by the remote server
      */
     public DataDDS getData(String CE, StatusUI statusUI, BaseTypeFactory btf) throws MalformedURLException, IOException,
-        ParseException, DDSException, DAP2Exception
+            ParseException, DDSException, DAP2Exception
     {
         if(CE != null && CE.trim().length() == 0) CE = null;
         DataDDS dds = new DataDDS(ver, btf);
@@ -1143,7 +1151,7 @@ return dds;
      * the entire DDS (but without any data) while this method returns
      * only those variables listed in the projection part of the constraint
      * expression.
-     * <p/>
+     * <p>
      * Note that if CE is an empty String then the entire dataset will be
      * returned, unless a "sticky" CE has been specified in the constructor.
      *
@@ -1162,7 +1170,7 @@ return dds;
      * @throws DAP2Exception         if any error returned by the remote server
      */
     public DataDDS getData(String CE, StatusUI statusUI) throws MalformedURLException, IOException,
-        ParseException, DDSException, DAP2Exception
+            ParseException, DDSException, DAP2Exception
     {
 
         return getData(CE, statusUI, new DefaultFactory());
@@ -1227,7 +1235,7 @@ return getDDXData(CE, statusUI, new DefaultFactory());
      * @throws DAP2Exception         if any error returned by the remote server
      */
     public final DataDDS getData(StatusUI statusUI) throws MalformedURLException, IOException,
-        ParseException, DDSException, DAP2Exception
+            ParseException, DDSException, DAP2Exception
     {
         return getData("", statusUI, new DefaultFactory());
     }

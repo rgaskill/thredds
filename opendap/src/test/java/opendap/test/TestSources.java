@@ -8,14 +8,11 @@ import java.io.FileReader;
 import java.util.HashMap;
 import java.util.Map;
 
-public class TestSources extends UnitTestCommon
+public class TestSources extends TestFiles
 {
-//////////////////////////////////////////////////
-// Remote test info
 
-    static final String TESTSUFFIX = "src/test/data";
-
-    static final String TESTDATA1DIR = "testdata1";
+    //////////////////////////////////////////////////
+    // Remote test info
 
     /* Use this for experimenting with new URLS */
     static public final String XURL1 = "http://" + TestDir.dap2TestServer + "/dts";
@@ -104,8 +101,7 @@ public class TestSources extends UnitTestCommon
     accessTestData(String testprefix, String basename, TestPart part) throws Exception
     {
 
-        String cwd = System.getProperty("user.dir");
-        String fname = cwd + File.separator + testprefix + File.separator + basename + partext(part);
+        String fname = testprefix + File.separator + basename + partext(part);
 
         String result = null;
         try {
@@ -126,25 +122,10 @@ public class TestSources extends UnitTestCommon
 
     }
 
-
-    static int debug = 0;
-
-    String opendapdir = null;
-    String testdir = null;
-    String testprefix = null;
-
     public TestSources()
     {
+	super();
         setup();
-        opendapdir = getThreddsroot() + "/opendap";
-        testprefix = opendapdir + "/" + TESTSUFFIX;
-        testdir = testprefix + "/" + TESTDATA1DIR;
-    }
-
-    // suppress "no test failure warning message */
-    public void testFake() throws Exception
-    {
-        assert true;
     }
 
     protected void setup()

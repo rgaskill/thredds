@@ -1138,10 +1138,6 @@ public class HTTPSession implements AutoCloseable
     configureRequest(RequestBuilder rb, RequestConfig.Builder rcb, Settings settings)
             throws HTTPException
     {
-        // Always define these
-        rcb.setExpectContinueEnabled(true);
-        rcb.setAuthenticationEnabled(true);
-
         // Configure the RequestConfig
         for(String key : settings.getKeys()) {
             Object value = settings.getParameter(key);
