@@ -55,10 +55,7 @@ import org.apache.http.conn.ssl.TrustSelfSignedStrategy;
 import org.apache.http.cookie.Cookie;
 import org.apache.http.entity.ContentType;
 import org.apache.http.entity.StringEntity;
-import org.apache.http.impl.client.BasicCookieStore;
-import org.apache.http.impl.client.CloseableHttpClient;
-import org.apache.http.impl.client.HttpClientBuilder;
-import org.apache.http.impl.client.HttpClients;
+import org.apache.http.impl.client.*;
 import org.apache.http.impl.conn.PoolingHttpClientConnectionManager;
 import org.apache.http.protocol.HttpContext;
 import org.apache.http.ssl.SSLContextBuilder;
@@ -794,6 +791,7 @@ public class HTTPSession implements AutoCloseable
         this.scopeHost = new HttpHost(this.scopeURI.getHost(),this.scopeURI.getPort(),this.scopeURI.getScheme());
         this.cachevalid = false; // Force build on first use
         this.sessioncontext.setCookieStore(new BasicCookieStore());
+        this.sessioncontext.setAttribute(HttpClientContext.AUTH_CACHE, new BasicAuthCache());
     }
 
     //////////////////////////////////////////////////
