@@ -252,6 +252,21 @@ public class TestAuth extends UnitTestCommon
             this.user = usr;
             this.password = pwd;
         }
+
+	/**
+	* Return url with embedded user+pwd
+	*/
+	public String inline()
+	    throws Exception
+	{
+	    StringBuilder buf = new StringBuilder(this.url);
+	    int pos = buf.indexof("://");
+	    pos += 3;
+    	    buf.insert(pos,"@");
+	    buf.insert(pos,this.password);
+    	    buf.insert(pos,":");
+       	    buf.insert(pos,this.user);
+	    return buf.toString();
     }
 
     protected AuthDataBasic[] basictests = {
@@ -298,6 +313,22 @@ public class TestAuth extends UnitTestCommon
 
         }
         Assert.assertTrue("testBasic", pass);
+    }
+
+    @Test
+    public void
+    testInline() throws Exception
+    {
+        System.out.println("*** Testing: Http Basic Password Authorization inline in URL");
+        boolean pass = true;
+        for(AuthDataBasic data : basictests) {
+            System.out.println("*** URL: " + data.inline());
+            try (HTTPSession session = HTTPFactory.newSession(data.url)) {
+                this.result = invoke(session, data.url);
+            }
+            pass &= (this.result.status == 200 || this.result.status == 404); // non-existence is ok
+            Assert.assertTrue("no content", this.result.contents.length > 0);
+        }
     }
 
     @Test
@@ -410,6 +441,7 @@ public class TestAuth extends UnitTestCommon
 
         }
     }
+
 /*
     @Test
     public void
