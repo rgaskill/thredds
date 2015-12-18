@@ -38,6 +38,7 @@ import org.apache.http.auth.AuthScope;
 import org.apache.http.auth.Credentials;
 import org.apache.http.client.CredentialsProvider;
 import org.apache.http.client.HttpClient;
+import org.apache.http.client.config.AuthSchemes;
 import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.entity.DeflateDecompressingEntity;
 import org.apache.http.client.entity.GzipDecompressingEntity;
@@ -71,16 +72,11 @@ import java.io.InputStream;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.charset.UnsupportedCharsetException;
-import java.security.KeyStore;
-import java.security.KeyStoreException;
-import java.security.NoSuchAlgorithmException;
-import java.security.UnrecoverableEntryException;
+import java.security.*;
 import java.security.cert.CertificateException;
 import java.util.*;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.ZipInputStream;
-
-import static org.apache.http.auth.AuthScope.ANY_SCHEME;
 
 /**
  * A session is encapsulated in an instance of the class HTTPSession.  The
@@ -100,8 +96,10 @@ import static org.apache.http.auth.AuthScope.ANY_SCHEME;
  * As a rule, if the client gives an HTTPSession object to the method
  * creation calls to HTTPFactory (e.g. HTTPFactory.Get or HTTPFactory.Post)
  * then that creation call must specify a url that is "compatible" with the
- * scope of the session.  The method url is <i>compatible</i> if its
- * host+port is the same as the session's host+port (=scope).
+ * scope of the session.  The method url is <it>compatible</i> if its
+ * host+port is the same as the session's host+port (=scope) and its scheme is
+ * compatible, where e.g. http is compatible with https
+ * (see HTTPAuthUtil.scopeCompatible)
  * <p>
  * If the HTTPFactory method creation call does not specify a session
  * object, then one is created (and destroyed) behind the scenes
@@ -172,11 +170,6 @@ public class HTTPSession implements AutoCloseable
     // from: http://en.wikipedia.org/wiki/List_of_HTTP_header_fields
     static final public String HEADER_USERAGENT = "User-Agent";
     static final public String ACCEPT_ENCODING = "Accept-Encoding";
-
-    static final public String BASIC = HTTPAuthSchemes.BASIC;
-    static final public String DIGEST = HTTPAuthSchemes.DIGEST;
-    static final public String NTLM = HTTPAuthSchemes.NTLM;
-    static final public String SSL = HTTPAuthSchemes.SSL;
 
     static final int DFALTTHREADCOUNT = 50;
     static final int DFALTREDIRECTS = 25;
@@ -470,7 +463,7 @@ public class HTTPSession implements AutoCloseable
             throws HTTPException
     {
         if(provider == null) throw new IllegalArgumentException("null argument");
-        setGlobalCredentialsProvider(provider, HTTPAuthSchemes.BASIC);
+        setGlobalCredentialsProvider(provider, AuthSchemes.BASIC);
     }
 
     /**
@@ -520,7 +513,7 @@ public class HTTPSession implements AutoCloseable
     {
         if(url == null || provider == null)
             throw new IllegalArgumentException("null argument");
-        AuthScope scope = HTTPAuthUtil.urlToScope(url, HTTPAuthSchemes.BASIC);
+        AuthScope scope = HTTPAuthUtil.uriToScope(url, AuthSchemes.BASIC);
         setGlobalCredentialsProvider(scope, provider);
     }
 
@@ -561,36 +554,6 @@ public class HTTPSession implements AutoCloseable
         if(path.endsWith("/"))
             path = path.substring(0, path.length() - 1);
         return path;
-    }
-
-    static public String
-    removeprincipal(String u)
-    {
-        // Must be a simpler way
-        String newurl = null;
-        try {
-            int index;
-            URI url = HTTPUtil.parseToURI(u);
-            String protocol = url.getScheme() + "://";
-            String host = url.getHost();
-            int port = url.getPort();
-            String path = url.getPath();
-            String query = url.getQuery();
-            String ref = url.getFragment();
-
-            String sport = (port <= 0 ? "" : (":" + port));
-            path = (path == null ? "" : path);
-            query = (query == null ? "" : "?" + query);
-            ref = (ref == null ? "" : "#" + ref);
-
-            // rebuild the url
-            // (and leaving encoding in place)
-            newurl = protocol + host + sport + path + query + ref;
-
-        } catch (URISyntaxException use) {
-            newurl = u;
-        }
-        return newurl;
     }
 
     static public String
@@ -677,13 +640,17 @@ public class HTTPSession implements AutoCloseable
 
         // load the stores
         try {
-            truststore = KeyStore.getInstance(KeyStore.getDefaultType());
-            try (FileInputStream instream = new FileInputStream(new File(trustpath))) {
-                truststore.load(instream, trustpassword.toCharArray());
+            if(trustpath != null) {
+                truststore = KeyStore.getInstance(KeyStore.getDefaultType());
+                try (FileInputStream instream = new FileInputStream(new File(trustpath))) {
+                    truststore.load(instream, trustpassword.toCharArray());
+                }
             }
-            keystore = KeyStore.getInstance(KeyStore.getDefaultType());
-            try (FileInputStream instream = new FileInputStream(new File(keypath))) {
-                keystore.load(instream, keypassword.toCharArray());
+            if(keypath != null) {
+                keystore = KeyStore.getInstance(KeyStore.getDefaultType());
+                try (FileInputStream instream = new FileInputStream(new File(keypath))) {
+                    keystore.load(instream, keypassword.toCharArray());
+                }
             }
         } catch (IOException
                 | NoSuchAlgorithmException
@@ -694,7 +661,6 @@ public class HTTPSession implements AutoCloseable
         try {
             // set up the global info
             SSLContextBuilder sslbuilder = SSLContexts.custom();
-            SSLContext scxt = null;
             HostnameVerifier verifier = new HostnameVerifier()
             {
                 public boolean verify(String hostname, SSLSession session)
@@ -703,15 +669,18 @@ public class HTTPSession implements AutoCloseable
                 }
             };
 
-            sslbuilder.loadTrustMaterial(truststore, new TrustSelfSignedStrategy());
+            if(truststore != null)
+                sslbuilder.loadTrustMaterial(truststore, new TrustSelfSignedStrategy());
             if(keystore != null)
                 sslbuilder.loadKeyMaterial(keystore, keypassword.toCharArray());
+            SSLContext scxt = sslbuilder.build();
             globalsslfactory = new SSLConnectionSocketFactory(scxt, verifier);
             rb.register("https", globalsslfactory);
 
             sslregistry = rb.build();
         } catch (KeyStoreException
                 | NoSuchAlgorithmException
+                | KeyManagementException
                 | UnrecoverableEntryException e) {
             log.error("Failed to set key/trust store(s): " + e.getMessage());
         }
@@ -724,7 +693,6 @@ public class HTTPSession implements AutoCloseable
     // Currently, the granularity of authorization is host+port.
     protected String sessionURL = null; // This is a real url or one from the scope
     protected URI scopeURI = null;
-    protected HttpHost scopeHost = null;
     protected AuthScope scope = null; /* from scopeURI  */
     protected boolean closed = false;
 
@@ -735,8 +703,9 @@ public class HTTPSession implements AutoCloseable
     // We currently only allow the use of global interceptors
     protected List<Object> intercepts = new ArrayList<Object>(); // current set of interceptors;
 
-    // This context is re-used over all method executions so that we maintain cookies,
-    // credentials, etc.
+    // This context is re-used over all method executions so that we maintain
+    // cookies, credentials, etc.
+    // But we do need away to clear so that e.g. we can clear credentials cache
     protected HttpClientContext sessioncontext = HttpClientContext.create();
 
     // cached and recreated as needed
@@ -773,7 +742,7 @@ public class HTTPSession implements AutoCloseable
         if(!url.matches("^[a-zZ-Z0-9+.-]+:.*$"))
             url = "http:" + url; // try to make it parseable
         this.sessionURL = url;
-        init(HTTPAuthUtil.urlToScope(url, ANY_SCHEME));
+        init(HTTPAuthUtil.uriToScope(url, null));
     }
 
     public HTTPSession(AuthScope scope)
@@ -788,7 +757,6 @@ public class HTTPSession implements AutoCloseable
         if(scope == null) throw new IllegalArgumentException("null argument");
         this.scope = scope;
         this.scopeURI = HTTPAuthUtil.scopeToURI(scope);
-        this.scopeHost = new HttpHost(this.scopeURI.getHost(),this.scopeURI.getPort(),this.scopeURI.getScheme());
         this.cachevalid = false; // Force build on first use
         this.sessioncontext.setCookieStore(new BasicCookieStore());
         this.sessioncontext.setAttribute(HttpClientContext.AUTH_CACHE, new BasicAuthCache());
@@ -953,6 +921,20 @@ public class HTTPSession implements AutoCloseable
         this.cachevalid = false;
     }
 
+    public void
+    clearCookies()
+    {
+        BasicCookieStore cookies = (BasicCookieStore) this.sessioncontext.getCookieStore();
+        if(cookies != null) cookies.clear();
+    }
+
+    public void
+    clearCredentialsCache()
+    {
+        BasicAuthCache ac = (BasicAuthCache) this.sessioncontext.getAttribute(HttpClientContext.AUTH_CACHE);
+        if(ac != null) ac.clear();
+    }
+
     // make package specific
 
     HttpClient
@@ -1004,10 +986,6 @@ public class HTTPSession implements AutoCloseable
         methodList.remove(m);
     }
 
-    public void clearState()
-    {
-        cachevalid = false;
-    }
 
     //////////////////////////////////////////////////
     // Authorization
@@ -1022,7 +1000,7 @@ public class HTTPSession implements AutoCloseable
             throws HTTPException
     {
         if(provider == null) throw new IllegalArgumentException("null argument");
-        setCredentialsProvider(provider, HTTPAuthSchemes.BASIC);
+        setCredentialsProvider(provider, AuthSchemes.BASIC);
     }
 
     /**
@@ -1054,15 +1032,16 @@ public class HTTPSession implements AutoCloseable
      */
 
     @Deprecated
-        public void
-        setCredentials(String url, Credentials creds)
-                throws HTTPException
-        {
-            if(url == null || creds == null)
-                throw new IllegalArgumentException("null argument");
-            CredentialsProvider provider = new HTTPConstantProvider(creds);
-            setCredentialsProvider(url, provider);
-        }
+    public void
+    setCredentials(String url, Credentials creds)
+            throws HTTPException
+    {
+        if(url == null || creds == null)
+            throw new IllegalArgumentException("null argument");
+        CredentialsProvider provider = new HTTPConstantProvider(creds);
+        setCredentialsProvider(url, provider);
+    }
+
     @Deprecated
     public void
     setCredentialsProvider(String url, CredentialsProvider provider)
@@ -1070,7 +1049,7 @@ public class HTTPSession implements AutoCloseable
     {
         if(url == null || provider == null)
             throw new IllegalArgumentException("null argument");
-        AuthScope scope = HTTPAuthUtil.urlToScope(url, HTTPAuthSchemes.BASIC);
+        AuthScope scope = HTTPAuthUtil.uriToScope(url, AuthSchemes.BASIC);
         setCredentialsProvider(scope, provider);
     }
 
@@ -1097,7 +1076,7 @@ public class HTTPSession implements AutoCloseable
      * @param method
      * @param methoduri
      * @param rb
-     * @return  CloseableHttpResponse
+     * @return CloseableHttpResponse
      * @throws HTTPException
      */
 
@@ -1107,7 +1086,8 @@ public class HTTPSession implements AutoCloseable
     {
         this.requestURI = methoduri;
         RequestConfig.Builder rcb = RequestConfig.custom();
-        HttpHost target = this.scopeHost;
+        HttpHost target = HTTPAuthUtil.scopeToHost(this.scope,
+                HTTPAuthUtil.uriToScope(methoduri,HTTPAuthUtil.ANY_SCHEME));
 
         synchronized (this) {// keep coverity happy
             //Merge Settings;

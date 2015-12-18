@@ -33,11 +33,6 @@
 
 package ucar.nc2.util.net;
 
-import java.io.File;
-import java.io.IOException;
-import java.io.Serializable;
-import java.util.List;
-
 import org.apache.http.auth.AuthScope;
 import org.apache.http.auth.Credentials;
 import org.apache.http.auth.UsernamePasswordCredentials;
@@ -46,13 +41,16 @@ import org.junit.Assert;
 import org.junit.Assume;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
-import ucar.httpservices.HTTPAuthSchemes;
 import ucar.httpservices.HTTPFactory;
 import ucar.httpservices.HTTPMethod;
 import ucar.httpservices.HTTPSession;
 import ucar.nc2.util.UnitTestCommon;
 import ucar.unidata.test.util.NeedsExternalResource;
 import ucar.unidata.test.util.TestDir;
+
+import java.io.File;
+import java.io.IOException;
+import java.io.Serializable;
 
 @Category(NeedsExternalResource.class)
 public class TestAuth extends UnitTestCommon
@@ -71,14 +69,7 @@ public class TestAuth extends UnitTestCommon
     // Add a temporary control for remote versus localhost
     static boolean remote = false;
 
-    // TODO: add proxy and digest tests
-
-    // Assuming we have thredds root, then the needed keystores
-    // are located in this directory
-    static final String KEYDIR = "/httpclient/src/test/resources";
-
-    static final String CLIENTKEY = "clientkey.jks";
-    static final String CLIENTPWD = "changeit";
+    // TODO: add proxy tests
 
     // Mnemonics for xfail
     static final boolean MUSTFAIL = true;
@@ -124,6 +115,18 @@ public class TestAuth extends UnitTestCommon
         int status = 0;
         int count = -1;
         byte[] contents = null;
+
+        public String toString()
+        {
+            StringBuilder b = new StringBuilder();
+            b.append("{");
+            b.append("status=");
+            b.append(status);
+            b.append(", count=");
+            b.append(count);
+            b.append("}");
+            return b.toString();
+        }
     }
 
 
@@ -223,7 +226,7 @@ public class TestAuth extends UnitTestCommon
                 version.startsWith("1.8"));
         boolean pass = true;
         String[] sshurls = {
-                "https://" + TestDir.dap2TestServer + "/dts/b31.dds"
+                "https://" + TestDir.remoteTestServer + "/thredds/dodsC/testdods/testData.nc.dds"
         };
 
         System.out.println("*** Testing: Simple Https");
@@ -232,8 +235,7 @@ public class TestAuth extends UnitTestCommon
             try (HTTPMethod method = HTTPFactory.Get(url)) {
                 int status = method.execute();
                 System.out.printf("\tstatus code = %d\n", status);
-                pass = (status == 200);
-                Assert.assertTrue("testSSH", pass);
+                Assert.assertTrue("testSSH", status == 200);
             }
         }
     }
@@ -253,24 +255,41 @@ public class TestAuth extends UnitTestCommon
             this.password = pwd;
         }
 
-	/**
-	* Return url with embedded user+pwd
-	*/
-	public String inline()
-	    throws Exception
-	{
-	    StringBuilder buf = new StringBuilder(this.url);
-	    int pos = buf.indexof("://");
-	    pos += 3;
-    	    buf.insert(pos,"@");
-	    buf.insert(pos,this.password);
-    	    buf.insert(pos,":");
-       	    buf.insert(pos,this.user);
-	    return buf.toString();
+        public String toString()
+        {
+            StringBuilder b = new StringBuilder();
+            b.append("{");
+            b.append("url=|");
+            b.append(url);
+            b.append("|");
+            b.append(", userpwd=");
+            b.append(user);
+            b.append(":");
+            b.append(password);
+            b.append("}");
+            return b.toString();
+        }
+
+        /**
+         * Return url with embedded user+pwd
+         */
+        public String inline()
+                throws Exception
+        {
+            StringBuilder buf = new StringBuilder(this.url);
+            int pos = buf.indexOf("://");
+            pos += 3;
+            buf.insert(pos, "@");
+            buf.insert(pos, this.password);
+            buf.insert(pos, ":");
+            buf.insert(pos, this.user);
+            return buf.toString();
+        }
     }
 
     protected AuthDataBasic[] basictests = {
-            new AuthDataBasic("http://" + TestDir.threddsTestServer + "/thredds/dodsC/restrict/testData.nc.dds",
+            new AuthDataBasic("http://" + TestDir.remoteTestServer
+                    + "/thredds/dodsC/restrict/testData.nc.dds",
                     "tiggeUser", "tigge"),
     };
 
@@ -287,12 +306,13 @@ public class TestAuth extends UnitTestCommon
             this.provider.setPWD(data.user, data.password);
 
             // Test global credentials provider
-            HTTPSession.setGlobalCredentialsProvider(data.url, this.provider);
+            HTTPSession.setGlobalCredentialsProvider(this.provider);
             //HTTPCachingProvider.clearCache();
             try (HTTPSession session = HTTPFactory.newSession(data.url)) {
                 this.result = invoke(session, data.url);
             }
-            pass &= (this.result.status == 200 || this.result.status == 404); // non-existence is ok
+            Assert.assertTrue("Incorrect return code: "+this.result.status,
+				this.result.status == 200);
             Assert.assertTrue("Credentials provider called: " + this.result.count, this.result.count == 1);
             Assert.assertTrue("no content", this.result.contents.length > 0);
         }
@@ -304,7 +324,7 @@ public class TestAuth extends UnitTestCommon
 
             //HTTPCachingProvider.clearCache();
             try (HTTPSession session = HTTPFactory.newSession(data.url)) {
-                session.setCredentialsProvider(data.url, this.provider);
+                session.setCredentialsProvider(this.provider);
                 this.result = invoke(session, data.url);
             }
             pass &= (this.result.status == 200 || this.result.status == 404); // non-existence is ok
@@ -324,9 +344,9 @@ public class TestAuth extends UnitTestCommon
         for(AuthDataBasic data : basictests) {
             System.out.println("*** URL: " + data.inline());
             try (HTTPSession session = HTTPFactory.newSession(data.url)) {
-                this.result = invoke(session, data.url);
+                this.result = invoke(session, data.inline());
             }
-            pass &= (this.result.status == 200 || this.result.status == 404); // non-existence is ok
+            Assert.assertTrue("Incorrect return code: " + this.result.status, this.result.status == 200 || this.result.status == 404); // non-existence is ok
             Assert.assertTrue("no content", this.result.contents.length > 0);
         }
     }
@@ -384,26 +404,17 @@ public class TestAuth extends UnitTestCommon
 
             //HTTPCachingProvider.clearCache();
             try (HTTPSession session = HTTPFactory.newSession(data.url)) {
-                session.setCredentialsProvider(data.url, this.provider);
+                session.setCredentialsProvider(this.provider);
                 this.result = invoke(session, data.url);
             }
             pass &= (this.result.status == 401); // bad password should fail
             Assert.assertTrue("Credentials provider called: " + this.result.count, this.result.count == 1);
-            // Look at the invalidation list
-            /*
-            List<HTTPCachingProvider.Auth> removed = HTTPCachingProvider.getTestList();
-            if(removed.size() == 1) {
-                HTTPCachingProvider.Auth triple = removed.get(0);
-                pass &= (triple.scope.getScheme().equals(HTTPAuthSchemes.BASIC.toUpperCase())
-                        && triple.creds instanceof UsernamePasswordCredentials);
-            } else
-                pass &= false;
-                */
             if(pass) {
-                // retry with correct password
+                // retry with correct password;
+                // AuthCache should automatically clear bad one from cache.
                 this.provider.setPWD(data.user, data.password);
                 try (HTTPSession session = HTTPFactory.newSession(data.url)) {
-                    session.setCredentialsProvider(data.url, this.provider);
+                    session.setCredentialsProvider(this.provider);
                     this.result = invoke(session, data.url);
                 }
                 Assert.assertTrue(result.status == 200);
@@ -418,7 +429,7 @@ public class TestAuth extends UnitTestCommon
     {
         boolean pass = true;
         System.err.println("*** Testing: Caron bug 1");
-        String url = "http://" + TestDir.threddsTestServer + "/thredds/dodsC/restrict/testData.nc.dds";
+        String url = "http://" + TestDir.remoteTestServer + "/thredds/dodsC/restrict/testData.nc.dds";
         try (HTTPSession session = HTTPFactory.newSession(url);
              HTTPMethod m = HTTPFactory.Get(url)) {
             CredentialsProvider cp = new CredentialsProvider()
@@ -436,38 +447,13 @@ public class TestAuth extends UnitTestCommon
                 {
                 }
             };
-            session.setCredentialsProvider(url, cp);
+            session.setCredentialsProvider(cp);
             m.execute();
 
         }
     }
 
 /*
-    @Test
-    public void
-    testDigest() throws Exception
-    {
-        boolean pass = true;
-        System.err.println("*** Testing: Digest Policy");
-        // Clear the cache and the global authstore
-        HTTPCachingProvider.clearCache();
-        HTTPSession.debugHeaders(true);
-
-        for(AuthDataBasic data : basictests) {
-            Credentials cred = new UsernamePasswordCredentials(data.user, data.password);
-            System.err.println("*** URL: " + data.url);
-            try (HTTPSession session = HTTPFactory.newSession(data.url);
-                 HTTPMethod method = HTTPFactory.Get(session, data.url)) {
-                session.setCredentials(HTTPAuthSchemes.BASIC, cred);
-                int status = method.execute();
-                System.err.printf("status code = %d\n", status);
-                System.err.flush();
-                pass = (status == 200 || status == 404); // non-existence is ok
-                assertTrue("testBasic", pass);
-            }
-        }
-    }
-
     public void
     testRedirect() throws Exception  // not used except for special testing
     {
@@ -526,51 +512,6 @@ public class TestAuth extends UnitTestCommon
 */
 
 /*
-    // This test is turned off until such time as the server can handle it.
-    @Test
-    public void
-    testKeystore() throws Exception
-    {
-        if(IGNORE) return; //ignore
-        boolean pass = true;
-        System.err.println("*** Testing: Client-side Key based Authorization");
-
-        String server;
-        String path;
-        if(remote) {
-            server = TestDir.dap2TestServer;
-            path = "/dts/b31.dds";
-        } else {
-            server = "localhost:8843";
-            path = "/thredds/dodsC/testStandardTdsScan/1day.nc.dds";
-        }
-
-        String url = "https://" + server + path;
-        System.err.println("*** URL: " + url);
-
-        // See if the client keystore exists
-        String keystore = getThreddsroot() + KEYDIR + "/" + CLIENTKEY;
-        File tmp = new File(keystore);
-        if(!tmp.exists() || !tmp.canRead())
-            throw new Exception("Cannot read client key store: " + keystore);
-
-        CredentialsProvider provider = new HTTPSSLProvider(keystore, CLIENTPWD);
-        AuthScope scope
-                = HTTPAuthUtil.urlToScope(url, HTTPAuthSchemes.SSL);
-        HTTPSession.setGlobalCredentialsProvider(scope, provider);
-
-        try (HTTPSession session = HTTPFactory.newSession(url);
-             HTTPMethod method = HTTPFactory.Get(session, url)) {
-            int status = method.execute();
-            System.err.printf("Execute: status code = %d\n", status);
-            pass = (status == 200);
-            if(pass)
-                assertTrue("testKeystore", true);
-            else
-                assertTrue("testKeystore", false);
-        }
-    }
-
     // This test actually is does nothing because I have no way to test it
     // since it requires a firwall proxy that requires username+pwd
     @Test

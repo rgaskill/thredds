@@ -35,6 +35,7 @@ package ucar.httpservices;
 
 import org.apache.http.*;
 import org.apache.http.auth.AuthScope;
+import org.apache.http.auth.UsernamePasswordCredentials;
 import org.apache.http.client.methods.HttpHead;
 import org.apache.http.client.methods.HttpOptions;
 import org.apache.http.client.methods.HttpUriRequest;
@@ -161,6 +162,7 @@ public class HTTPMethod implements AutoCloseable
     protected HTTPSession session = null;
     protected boolean localsession = false;
     protected URI methodurl = null;
+    protected String userinfo = null;
     protected HttpEntity content = null;
     protected HTTPSession.Methods methodkind = null;
     protected HTTPMethodStream methodstream = null; // wrapper for strm
@@ -193,6 +195,7 @@ public class HTTPMethod implements AutoCloseable
     public HTTPMethod(HTTPSession.Methods m, HTTPSession session, String url)
             throws HTTPException
     {
+        url = HTTPUtil.nullify(url) ;
         if(url == null && session != null)
             url = session.getSessionURL();
         if(url == null)
@@ -203,12 +206,21 @@ public class HTTPMethod implements AutoCloseable
             throw new HTTPException("Malformed URL: " + url, mue);
         }
 
+        // Check method and url compatibiltiy
+
+
         if(session == null) {
             session = HTTPFactory.newSession(url);
             localsession = true;
         }
         this.session = session;
-        url = HTTPSession.removeprincipal(url);
+        this.userinfo = HTTPUtil.nullify(this.methodurl.getUserInfo());
+        if(this.userinfo != null) {
+            this.methodurl = HTTPUtil.uriExclude(this.methodurl, HTTPUtil.URIPart.USERINFO);
+            // convert userinfo to credentials
+            this.session.setCredentials(
+                    new UsernamePasswordCredentials(this.userinfo));
+        }
         this.session.addMethod(this);
         this.methodkind = m;
     }
@@ -296,7 +308,7 @@ public class HTTPMethod implements AutoCloseable
             throw new HTTPException("HTTPMethod: attempt to execute closed method");
         if(this.methodurl == null)
             throw new HTTPException("HTTPMethod: no url specified");
-        if(!localsession && !sessionCompatible(this.methodurl.toString()))
+        if(!localsession && !sessionCompatible(this.methodurl))
             throw new HTTPException("HTTPMethod: session incompatible url: " + this.methodurl);
 
         RequestBuilder rb = buildrequest();
@@ -645,10 +657,10 @@ public class HTTPMethod implements AutoCloseable
      *
      * @return
      */
-    protected boolean sessionCompatible(String other)
+    protected boolean sessionCompatible(URI other)
     {
         try {
-            return sessionCompatible(HTTPAuthUtil.urlToScope(other));
+            return sessionCompatible(HTTPAuthUtil.uriToScope(other,HTTPAuthUtil.ANY_SCHEME));
         } catch (HTTPException e) {
             return false;
         }
@@ -658,22 +670,7 @@ public class HTTPMethod implements AutoCloseable
     {
         // Remove any trailing constraint
         if(session.getScope() == null) return true; // always compatible
-        return compatibleURI(session.getScope(), other);
-    }
-
-    /**
-     * Define URI compatibility.
-     * Currently, it is assumed that two urls are compatible if and only if
-     * they have the same host and port
-     */
-
-    static protected boolean compatibleURI(AuthScope a1, AuthScope a2)
-    {
-        if(a1 == a2) return true;
-        if((a1 == null) ^ (a2 == null))
-            return false;
-        return a1.getHost().equals(a2.getHost())
-                && a1.getPort() == a2.getPort();
+        return HTTPAuthUtil.scopeCompatible(session.getScope(), other);
     }
 
     //////////////////////////////////////////////////

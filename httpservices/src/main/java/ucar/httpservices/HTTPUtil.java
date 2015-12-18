@@ -34,6 +34,7 @@
 package ucar.httpservices;
 
 import org.apache.http.*;
+import org.apache.http.client.utils.URIBuilder;
 import org.apache.http.message.BasicHeader;
 import org.apache.http.protocol.HttpContext;
 
@@ -42,6 +43,7 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.charset.Charset;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.List;
 
 abstract public class HTTPUtil
@@ -52,6 +54,13 @@ abstract public class HTTPUtil
 
     public static final Charset UTF8 = Charset.forName("UTF-8");
     public static final Charset ASCII = Charset.forName("US-ASCII");
+
+    //////////////////////////////////////////////////
+
+    public enum URIPart
+    {
+        SCHEME, USERINFO, HOST, PORT, PATH, QUERY, FRAGMENT
+    }
 
     //////////////////////////////////////////////////
     // Interceptors
@@ -67,7 +76,7 @@ abstract public class HTTPUtil
         public InterceptCommon setPrint(boolean tf)
         {
             this.printheaders = tf;
-	    return this;
+            return this;
         }
 
         public void
@@ -249,7 +258,7 @@ abstract public class HTTPUtil
      * The critical thing is that this procedure can handle backslash
      * escaped uris as well as %xx escaped uris.
      *
-     * @param u  the uri to convert
+     * @param u the uri to convert
      * @return The URI corresponding to u.
      * @throws URISyntaxException
      */
@@ -273,36 +282,80 @@ abstract public class HTTPUtil
         return new URI(buf.toString());
     }
 
+    /**
+     * Remove selected fields from a  URI producing a new URI
+     *
+     * @param uri      the uri to convert
+     * @param excludes the parts to exclude
+     * @return The new URI instance
+     */
+    static public URI
+    uriExclude(final URI uri, URIPart... excludes)
+    {
+        URIBuilder urib = new URIBuilder();
+        EnumSet<URIPart> set = EnumSet.of(excludes[0], excludes);
+        for(URIPart part : URIPart.values()) {
+            if(set.contains(part)) continue;
+            switch (part) {
+            case SCHEME:
+                urib.setScheme(uri.getScheme());
+                break;
+            case USERINFO:
+                urib.setUserInfo(uri.getUserInfo());
+                break;
+            case HOST:
+                urib.setHost(uri.getHost());
+                break;
+            case PORT:
+                urib.setPort(uri.getPort());
+                break;
+            case PATH:
+                urib.setPath(uri.getPath());
+                break;
+            case QUERY:
+                urib.setCustomQuery(uri.getQuery());
+                break;
+            case FRAGMENT:
+                urib.setFragment(uri.getFragment());
+                break;
+            }
+        }
+        try {
+            return urib.build();
+        } catch (URISyntaxException e) {
+            throw new IllegalArgumentException(e.getMessage());
+        }
+    }
 
     /**
      * Temporary hack to remove Content-Encoding: XXX-Endian headers
      */
     static public class ContentEncodingInterceptor extends InterceptCommon
-        implements HttpResponseInterceptor
+            implements HttpResponseInterceptor
     {
         synchronized public void
         process(HttpResponse response, HttpContext context)
-            throws HttpException, IOException
+                throws HttpException, IOException
         {
             if(response == null) return;
             Header[] hdrs = response.getAllHeaders();
             if(hdrs == null) return;
             boolean modified = false;
-            for(int i=0;i < hdrs.length;i++) {
+            for(int i = 0; i < hdrs.length; i++) {
                 Header h = hdrs[i];
                 if(!h.getName().equalsIgnoreCase("content-encoding")) continue;
                 String value = h.getValue();
                 if(value.trim().toLowerCase().endsWith("-endian")) {
-                    hdrs[i] = new BasicHeader("X-Content-Encoding",value);
+                    hdrs[i] = new BasicHeader("X-Content-Encoding", value);
                     modified = true;
                 }
             }
             if(modified)
                 response.setHeaders(hdrs);
             // Similarly, suppress encoding for Entity
-            HttpEntity entity= response.getEntity();
+            HttpEntity entity = response.getEntity();
             Header ceheader = entity.getContentEncoding();
-            if (ceheader != null) {
+            if(ceheader != null) {
                 String value = ceheader.getValue();
                 if(value.trim().toLowerCase().endsWith("-endian")) {
                     int x = 0;//entity.setContentEncoding(new BasicHeader("Content-Encoding","Identity"));
@@ -312,17 +365,29 @@ abstract public class HTTPUtil
     }
 
     static protected HTTPSession.Settings
-       merge(HTTPSession.Settings globalsettings, HTTPSession.Settings localsettings)
-       {
-           // merge global and local settings; local overrides global.
-           HTTPSession.Settings merge = new HTTPSession.Settings();
-           for(String key : globalsettings.getKeys()) {
-               merge.setParameter(key, globalsettings.getParameter(key));
-           }
-           for(String key : localsettings.getKeys()) {
-               merge.setParameter(key, localsettings.getParameter(key));
-           }
-           return merge;
-       }
+    merge(HTTPSession.Settings globalsettings, HTTPSession.Settings localsettings)
+    {
+        // merge global and local settings; local overrides global.
+        HTTPSession.Settings merge = new HTTPSession.Settings();
+        for(String key : globalsettings.getKeys()) {
+            merge.setParameter(key, globalsettings.getParameter(key));
+        }
+        for(String key : localsettings.getKeys()) {
+            merge.setParameter(key, localsettings.getParameter(key));
+        }
+        return merge;
+    }
+
+
+  /**
+   * Convert a zero-length string to null
+   *
+   * @param s the string to check for length
+   * @return null if s.length() == 0, s otherwise
+   */
+  static public String nullify(String s) {
+    if (s != null && s.length() == 0) s = null;
+    return s;
+  }
 
 }

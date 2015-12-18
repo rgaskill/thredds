@@ -34,18 +34,11 @@
 package ucar.httpservices;
 
 
+import org.apache.http.HttpHost;
 import org.apache.http.auth.AuthScope;
-import org.apache.http.util.LangUtils;
 
-import java.io.IOException;
-import java.io.ObjectInputStream;
-import java.io.ObjectOutputStream;
-import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.net.URL;
-
-import static org.apache.http.auth.AuthScope.*;
 
 
 /**
@@ -66,59 +59,105 @@ abstract public class HTTPAuthUtil
     public static final String ANY_SCHEME = AuthScope.ANY_SCHEME;
 
     public static final AuthScope ANY = AuthScope.ANY;
-    //////////////////////////////////////////////////
-    // URL Decomposition
 
-    /*
-    static URI decompose(String suri)
-        throws HTTPException
-    {
-        try {
-            URI uri = HTTPUtil.parseToURI(suri);
-            return uri;
-        } catch (URISyntaxException use) {
-            throw new HTTPException("HTTPAuthUtil: illegal url: " + suri);
-        }
-    } */
+    //////////////////////////////////////////////////
+    // Scope Utilities
 
     /**
-     * Create an AuthScope from a URL; pull out any principal
+     * Given a session url scope and a Method url scope,
+     * Indicate it the are "compatible" as defined as follows.
+     * The method scope is <i>compatible</i> with the session scope
+     * if its host+port is the same as the session's host+port and its scheme is
+     * compatible, where e.g. http is compatible with https
      *
-     * @param surl       to convert
+     * @param ss Session scope
+     * @param ms Method scope
+     * @return
+     */
+    static public boolean
+    scopeCompatible(AuthScope ss, AuthScope ms)
+    {
+        if(!ss.getHost().equalsIgnoreCase(ms.getHost()))
+            return false;
+        if(ss.getPort() != ms.getPort())
+            return false;
+        String sss = ss.getScheme().toLowerCase();
+        String mss = ms.getScheme().toLowerCase();
+        if(!sss.equals(mss)) {
+            // Do some special casing
+            if(sss.endsWith("s")) sss = sss.substring(0, sss.length() - 1);
+            if(mss.endsWith("s")) mss = mss.substring(0, mss.length() - 1);
+            if(!sss.equals(mss))
+                return false;
+        }
+        return true;
+    }
+
+    /**
+     * Given a session url scope and a Method url scope,
+     * "merge" them to produce an HttpHost object where (currently)
+     * only the scheme changes to move http -> https.
+     * Assumes scopeCompatible() is true.
+     *
+     * @param ss Session scope
+     * @param ms Method scope
+     * @return
+     */
+    static public HttpHost
+    scopeToHost(AuthScope ss, AuthScope ms)
+    {
+        String sss = ss.getScheme();
+        String mss = ms.getScheme();
+        if(sss != null) sss = sss.toLowerCase();
+        if(mss != null) mss = mss.toLowerCase();
+        if(sss != null && mss != null) {
+            if(sss.equals("https") || mss.equals("https"))
+                sss = "https";
+        }
+        HttpHost host = new HttpHost(ss.getHost(), ss.getPort(), sss);
+        return host;
+    }
+
+    static public AuthScope
+    uriToScope(String surl, String authscheme)
+            throws HTTPException
+    {
+        try {
+            URI uri = HTTPUtil.parseToURI(surl);
+            return uriToScope(uri, authscheme);
+        } catch (URISyntaxException e) {
+            throw new HTTPException(e);
+        }
+    }
+
+    /**
+     * Create an AuthScope from a URI; pull out any principal
+     *
+     * @param uri        to convert
      * @param authscheme
      * @returns an AuthScope instance
      */
 
     static public AuthScope
-    urlToScope(String surl, String authscheme)
-        throws HTTPException
+    uriToScope(URI uri, String authscheme)
+            throws HTTPException
     {
-        if(surl == null)
-        throw new HTTPException("Null argument");
+        if(uri == null)
+            throw new HTTPException("Null argument");
         try {
-            URI uri = HTTPUtil.parseToURI(surl);
             AuthScope scope = new AuthScope(uri.getHost(),
-                uri.getPort(),
-                HTTPAuthUtil.makerealm(uri),
-                authscheme);
+                    uri.getPort(),
+                    HTTPAuthUtil.makerealm(uri),
+                    authscheme);
             return scope;
         } catch (IllegalArgumentException e) {
-            return null;
-        } catch (URISyntaxException mue) {
-            throw new HTTPException(mue);
+            throw new HTTPException(e);
         }
-    }
-
-    static public AuthScope
-    urlToScope(String surl)
-        throws HTTPException
-    {
-        return urlToScope(surl, ANY_SCHEME);
     }
 
     static public URI
     scopeToURI(AuthScope scope)
-        throws HTTPException
+            throws HTTPException
     {
         try {
             String scheme = scope.getScheme();
@@ -128,7 +167,7 @@ abstract public class HTTPAuthUtil
                 scheme = "https";
             else
                 scheme = "http";
-            URI url = new URI(scheme, null, scope.getHost(), scope.getPort(), "",null,null);
+            URI url = new URI(scheme, null, scope.getHost(), scope.getPort(), "", null, null);
             return url;
         } catch (URISyntaxException mue) {
             throw new HTTPException(mue);
@@ -142,30 +181,34 @@ abstract public class HTTPAuthUtil
      * Equivalence algorithm:
      * if any field is ANY_XXX, then they are equivalent.
      * Scheme, port, host must all be identical else return false
+     * Except: for scheme http == https
      * If this.path is prefix of other.path
      * or other.path is prefix of this.path
      * or they are string equals, then return true
      * else return false.
      */
+    /*
     static public boolean equivalent(AuthScope a1, AuthScope a2)
     {
         if(a1 == null || a2 == null)
             throw new NullPointerException();
         if(a1.getScheme() != ANY_SCHEME && a2.getScheme() != ANY_SCHEME
-            && !a1.getScheme().equals(a2.getScheme()))
+                && !a1.getScheme().equals(a2.getScheme()))
             return false;
         if(a1.getHost() != ANY_HOST && a2.getHost() != ANY_HOST
-            && !a1.getHost().equals(a2.getHost()))
+                && !a1.getHost().equals(a2.getHost()))
             return false;
         if(a1.getPort() != ANY_PORT && a2.getPort() != ANY_PORT
-            && a1.getPort() != a2.getPort())
+                && a1.getPort() != a2.getPort())
             return false;
         if(a1.getRealm() != ANY_REALM && a2.getRealm() != ANY_REALM
-            && !a1.getRealm().equals(a2.getRealm()))
+                && !a1.getRealm().equals(a2.getRealm()))
             return false;
         return true;
     }
+    */
 
+    /*
     public static boolean equals(AuthScope a1, AuthScope a2)
     {
         if(a2 == null ^ a1 == null)
@@ -176,7 +219,7 @@ abstract public class HTTPAuthUtil
         // test port values correctly, so we need to fix here.
         if(true) {
             boolean b1 = HTTPUtil.equals(a1.getHost(), a2.getHost());
-            if(!b1 && ( a1.getHost() == AuthScope.ANY_HOST || a1.getHost() == AuthScope.ANY_HOST))
+            if(!b1 && (a1.getHost() == AuthScope.ANY_HOST || a1.getHost() == AuthScope.ANY_HOST))
                 b1 = true;
             int aport = a2.getPort();
             boolean b2 = (a1.getPort() == aport || a1.getPort() == ANY_PORT || aport == ANY_PORT);
@@ -189,7 +232,7 @@ abstract public class HTTPAuthUtil
             return false;
         return true;
     }
-
+    */
     static public AuthScope
     fixScopeRealm(AuthScope scope)
     {
@@ -215,43 +258,6 @@ abstract public class HTTPAuthUtil
             return ANY_REALM;
         String sport = (port <= 0 || port == ANY_PORT) ? "" : String.format("%d", port);
         return host + sport;
-    }
-
-    /**
-     * Check is a AuthScope is "subsumed" by another AuthScope.
-     * Alias for equivalence
-     */
-    static boolean subsumes(AuthScope as, AuthScope has)
-    {
-        return equivalent(as, has);
-    }
-
-
-    static public boolean
-    wildcardMatch(String p1, String p2)
-    {
-        if((p1 == null ^ p2 == null) || (p1 == p2))
-            return true;
-        return (p1.equals(p2));
-    }
-
-    static public void serializeScope(AuthScope scope, ObjectOutputStream oos)
-        throws IOException
-    {
-        oos.writeObject(scope.getHost());
-        oos.writeInt(scope.getPort());
-        oos.writeObject(scope.getRealm());
-        oos.writeObject(scope.getScheme());
-    }
-
-    static public AuthScope deserializeScope(ObjectInputStream oos)
-        throws IOException, ClassNotFoundException
-    {
-        String host = (String) oos.readObject();
-        int port = oos.readInt();
-        String realm = (String) oos.readObject();
-        String scheme = (String) oos.readObject();
-        return new AuthScope(host, port, realm, scheme);
     }
 
 }

@@ -12,9 +12,6 @@ import ucar.unidata.test.Diff;
 import ucar.unidata.test.util.TestDir;
 
 import java.io.*;
-import java.net.ServerSocket;
-import java.net.Socket;
-import java.net.SocketTimeoutException;
 import java.nio.charset.Charset;
 import java.util.EnumSet;
 import java.util.Set;
@@ -152,7 +149,7 @@ public class UnitTestCommon
         if(DEBUG) {
             System.err.println("UnitTestCommon: dtsServer=" + dtsServer);
         }
-        this.threddsServer = TestDir.threddsTestServer;
+        this.threddsServer = TestDir.remoteTestServer;
         if(DEBUG) {
             System.err.println("UnitTestCommon: threddsServer=" + threddsServer);
         }

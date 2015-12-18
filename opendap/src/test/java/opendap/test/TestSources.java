@@ -1,6 +1,5 @@
 package opendap.test;
 
-import ucar.nc2.util.UnitTestCommon;
 import ucar.unidata.test.util.TestDir;
 
 import java.io.File;
@@ -57,7 +56,7 @@ public class TestSources extends TestFiles
     };
 
 
-    protected final String REMOTEURLC2 = "http://" + TestDir.threddsTestServer + "/thredds/dodsC/fmrc/NCEP/NAM/CONUS_12km/files";
+    protected final String REMOTEURLC2 = "http://" + TestDir.remoteTestServer + "/thredds/dodsC/fmrc/NCEP/NAM/CONUS_12km/files";
     static final String[] REMOTEC2 = {
             "NAM_CONUS_12km_20100628_1200.grib2;01;Wind_speed[0][0][0][0]"
     };
