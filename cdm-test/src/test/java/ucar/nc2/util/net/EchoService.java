@@ -4,12 +4,7 @@
 
 package ucar.nc2.util.net;
 
-import ucar.nc2.util.UnitTestCommon;
-
-import java.io.ByteArrayOutputStream;
-import java.io.Closeable;
-import java.io.InputStream;
-import java.io.OutputStream;
+import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
@@ -39,11 +34,15 @@ import java.net.SocketTimeoutException;
 
 public class EchoService implements Runnable, Closeable
 {
-    int port = 4444;
+    static public boolean DEBUG = true;
+
+    protected ServerSocket serverSocket = null;
 
     public volatile boolean terminate = false;
 
     Thread instance = null;
+
+    int port = 0;
 
     public EchoService(int port)
     {
@@ -54,67 +53,59 @@ public class EchoService implements Runnable, Closeable
     {
         try {
             // create socket
-            try (ServerSocket serverSocket = new ServerSocket(port)) {
+            this.serverSocket = new ServerSocket(port);
+            //log.info(
+            System.err.println(
+                    "Started server on port " + port);
+            System.err.flush();
+            this.serverSocket.setSoTimeout(1000);
+            // repeatedly wait for connections, and process
+            while(!terminate) {
+                // a "blocking" call which waits until a connection is requested
+                Socket clientSocket = null;
+                try {
+                    clientSocket = serverSocket.accept();
+                } catch (SocketTimeoutException ste) {
+                    continue; // so we can check for terminate flag
+                }
                 //log.info(
                 System.err.println(
-                        "Started server on port " + port);
+                        "Accepted connection from client");
                 System.err.flush();
-                serverSocket.setSoTimeout(1000);
-                // repeatedly wait for connections, and process
+
+                InputStream is = clientSocket.getInputStream();
+                OutputStream os = clientSocket.getOutputStream();
+                ByteArrayOutputStream bos = new ByteArrayOutputStream();
+                // Send the headers
+                byte[] hdrs = "HTTP/1.0 200 OK\nContent-Type: application/octet-stream\n\n"
+                        .getBytes("UTF-8");
+                os.write(hdrs);
                 while(!terminate) {
-
-                    // a "blocking" call which waits until a connection is requested
-                    Socket clientSocket = null;
-                    try {
-                        clientSocket = serverSocket.accept();
-                    } catch (SocketTimeoutException ste) {
-                        continue; // so we can check for terminate flag
-                    }
-                    //log.info(
-                    System.err.println(
-                            "Accepted connection from client");
-                    System.err.flush();
-
-                    InputStream is = clientSocket.getInputStream();
-                    OutputStream os = clientSocket.getOutputStream();
-                    ByteArrayOutputStream bos = new ByteArrayOutputStream();
-                    // Send the headers
-                    byte[] hdrs = "HTTP/1.0 200 OK\nContent-Type: application/octet-stream\n\n"
-                            .getBytes("UTF-8");
-                    os.write(hdrs);
-                    while(!terminate) {
-                        int c = is.read();
-                        if(c <= 0) break;
-                        os.write(c);
-                        bos.write(c);
-                        // available() on a socket appears to require
-                        // an initial read in order to be non-zero.
-                        // So we have to assume that at least one char is sent
-                        int avail = is.available();
-                        if(avail == 0) break;
-                    }
-                    byte[] in = bos.toByteArray();
-                    if(UnitTestCommon.DEBUG) {
-                        String body = new String(in, "UTF-8");
-                        System.err.println("EchoService.RAW:\n" + body);
-                    }
-		    Thread.sleep(5000);
-                    System.err.println(
-                            "Closing connection with client");
-                    System.err.flush();
-                    clientSocket.close();
+                    int c = is.read();
+                    if(c <= 0) break;
+                    os.write(c);
+                    bos.write(c);
+                    // available() on a socket appears to require
+                    // an initial read in order to be non-zero.
+                    // So we have to assume that at least one char is sent
+                    int avail = is.available();
+                    if(avail == 0) break;
                 }
+                os.flush();
+                byte[] in = bos.toByteArray();
+                if(EchoService.DEBUG) {
+                    String body = new String(in, "UTF-8");
+                    System.err.println("EchoService.RAW:\n" + body);
+                }
+                System.err.flush();
+                clientSocket.close();
             }
-
         } catch (Exception e) {
             //log.error(
             System.err.println(
                     "EchoService failed: " + e.getMessage());
             System.err.flush();
         }
-        if(terminate)
-            System.err.println("Echo Server terminated");
-        System.err.flush();
     }
 
     public EchoService
@@ -141,6 +132,11 @@ public class EchoService implements Runnable, Closeable
             } catch (InterruptedException ie) {
                 continue;
             }
+        }
+        try {
+            serverSocket.close();
+        } catch (IOException ioe) {
+            System.err.println("Socket close failed");
         }
     }
 }

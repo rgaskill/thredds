@@ -138,8 +138,9 @@ public class TestFormBuilder extends UnitTestCommon
                 System.err.println("TestFormBuilder.testsimple.diffs:\n" + diffs);
                 Assert.assertTrue("TestFormBuilder.testSimple: ***FAIL", false);
             }
-        } catch (Exception exc) {
-            exc.printStackTrace();
+        } catch (Exception e) {
+            System.err.println("***FAIL: "+e.getMessage());
+            System.err.flush();
             pass = false;
         }
         Assert.assertTrue("TestFormBuilder.simple: failed", pass);
