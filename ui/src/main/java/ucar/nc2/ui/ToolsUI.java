@@ -38,7 +38,6 @@ import thredds.client.catalog.writer.DataFactory;
 import thredds.featurecollection.FeatureCollectionConfig;
 import thredds.inventory.bdb.MetadataManager;
 import thredds.ui.catalog.ThreddsUI;
-import ucar.httpservices.HTTPAuthSchemes;
 import ucar.httpservices.HTTPException;
 import ucar.httpservices.HTTPSession;
 import ucar.nc2.*;

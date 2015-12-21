@@ -33,6 +33,7 @@
 
 package ucar.httpservices;
 
+import org.apache.http.HttpHost;
 import org.apache.http.auth.AuthScope;
 
 /**
@@ -56,14 +57,20 @@ public class HTTPFactory
         return new HTTPSession(url);
     }
 
+    static public HTTPSession newSession(HttpHost target) throws HTTPException
+    {
+        return new HTTPSession(target);
+    }
+
+    @Deprecated
     static public HTTPSession newSession(AuthScope scope) throws HTTPException
     {
-        return new HTTPSession(scope);
+	HttpHost hh = new HttpHost(scope.getHost(),scope.getPort(),null);
+        return new HTTPSession(hh);
     }
 
     //////////////////////////////////////////////////////////////////////////
     // Static factory methods for creating HTTPMethod instances
-
 
     static public HTTPMethod Get(HTTPSession session) throws HTTPException
     {

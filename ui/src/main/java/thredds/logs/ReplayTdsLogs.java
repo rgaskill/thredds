@@ -36,7 +36,6 @@ package thredds.logs;
 import ucar.httpservices.HTTPException;
 import ucar.httpservices.HTTPFactory;
 import ucar.httpservices.HTTPMethod;
-import ucar.httpservices.HTTPSession;
 import ucar.nc2.util.IO;
 import ucar.nc2.util.EscapeStrings;
 
@@ -720,7 +719,7 @@ public class ReplayTdsLogs {
       // Grab url string after it's been cleaned up by HTTPfactory.Head...the string verion of the
       // url is used elsewhere in this code.
       // todo - replace string version of the url with something more robust, like a URL object.
-      serverToTest =  method.getSession().getSessionURL();
+      serverToTest =  method.getSession().getSessionURI();
       method.setUserAgent(USER_AGENT);
       method.execute();
       method.close();

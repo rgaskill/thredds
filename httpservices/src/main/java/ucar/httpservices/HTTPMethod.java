@@ -189,15 +189,15 @@ public class HTTPMethod implements AutoCloseable
     public HTTPMethod(HTTPSession.Methods m, HTTPSession session)
             throws HTTPException
     {
-        this(m, session, session.getSessionURL());
+        this(m, session, session.getSessionURI());
     }
 
     public HTTPMethod(HTTPSession.Methods m, HTTPSession session, String url)
             throws HTTPException
     {
-        url = HTTPUtil.nullify(url) ;
+        url = HTTPUtil.nullify(url);
         if(url == null && session != null)
-            url = session.getSessionURL();
+            url = session.getSessionURI();
         if(url == null)
             throw new HTTPException("HTTPMethod: cannot find usable url");
         try {
@@ -649,28 +649,30 @@ public class HTTPMethod implements AutoCloseable
 
     /**
      * Test that the given url is "compatible" with the
-     * session specified dataset. Compatible means:
-     * 1. remove any query
-     * 2. HTTPAuthStore.compatibleURL must return true;
-     * <p>
-     * * @param url  to test for compatibility
+     * session specified dataset. Wrapper around
+     * HTTPAuthUtil.httphostCompatible().
      *
-     * @return
+     * @param other to test for compatibility against this method's
+     * @return true if compatible, false otherwise.
      */
-    protected boolean sessionCompatible(URI other)
+    protected boolean
+    sessionCompatible(HttpHost other)
     {
-        try {
-            return sessionCompatible(HTTPAuthUtil.uriToScope(other,HTTPAuthUtil.ANY_SCHEME));
-        } catch (HTTPException e) {
-            return false;
-        }
+        return HTTPAuthUtil.httphostCompatible(session.getHttpHost(), other);
     }
 
+    protected boolean
+    sessionCompatible(URI other)
+    {
+        HttpHost otherhost = HTTPAuthUtil.uriToHttpHost(other);
+        return sessionCompatible(otherhost);
+    }
+
+    @Deprecated
     protected boolean sessionCompatible(AuthScope other)
     {
-        // Remove any trailing constraint
-        if(session.getScope() == null) return true; // always compatible
-        return HTTPAuthUtil.scopeCompatible(session.getScope(), other);
+        HttpHost hother = new HttpHost(other.getHost(), other.getPort(), null);
+        return sessionCompatible(hother);
     }
 
     //////////////////////////////////////////////////

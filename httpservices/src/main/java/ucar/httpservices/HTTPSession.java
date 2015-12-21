@@ -51,8 +51,10 @@ import org.apache.http.client.protocol.HttpClientContext;
 import org.apache.http.config.Registry;
 import org.apache.http.config.RegistryBuilder;
 import org.apache.http.conn.socket.ConnectionSocketFactory;
+import org.apache.http.conn.ssl.NoopHostnameVerifier;
 import org.apache.http.conn.ssl.SSLConnectionSocketFactory;
 import org.apache.http.conn.ssl.TrustSelfSignedStrategy;
+import org.apache.http.conn.ssl.TrustStrategy;
 import org.apache.http.cookie.Cookie;
 import org.apache.http.entity.ContentType;
 import org.apache.http.entity.StringEntity;
@@ -62,27 +64,29 @@ import org.apache.http.protocol.HttpContext;
 import org.apache.http.ssl.SSLContextBuilder;
 import org.apache.http.ssl.SSLContexts;
 
-import javax.net.ssl.HostnameVerifier;
 import javax.net.ssl.SSLContext;
-import javax.net.ssl.SSLSession;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509TrustManager;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
-import java.net.URISyntaxException;
 import java.nio.charset.UnsupportedCharsetException;
 import java.security.*;
 import java.security.cert.CertificateException;
+import java.security.cert.CertificateExpiredException;
+import java.security.cert.CertificateNotYetValidException;
+import java.security.cert.X509Certificate;
 import java.util.*;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.ZipInputStream;
 
 /**
- * A session is encapsulated in an instance of the class HTTPSession.  The
- * encapsulation is with respect to a specific authentication scope, where
- * scope is host+port.  This means that once a session is specified, it is
- * tied permanently to that scope.
+ * A session is encapsulated in an instance of the class HTTPSession.
+ * The encapsulation is with respect to a specific HttpHost "realm",
+ * where the important part is is host+port.  This means that once a
+ * session is specified, it is tied permanently to that realm.
  * <p>
  * A Session encapsulate a number of other objects:
  * <ul>
@@ -90,16 +94,19 @@ import java.util.zip.ZipInputStream;
  * <li> A http session id
  * <li> A RequestContext object; this also includes authentication:
  * specifically a credential and a credentials provider.
- * <li> Optional principal (not yet implemented)
  * </ul>
  * <p>
- * As a rule, if the client gives an HTTPSession object to the method
- * creation calls to HTTPFactory (e.g. HTTPFactory.Get or HTTPFactory.Post)
+ * Currently, it is assumed that only one set of credentials is needed,
+ * whether directly for server X or for server Y. This may change in the
+ * future.
+ * <p>
+ * As a rule, if the client gives an HTTPSession object to the "create method"
+ * procedures of  HTTPFactory (e.g. HTTPFactory.Get or HTTPFactory.Post)
  * then that creation call must specify a url that is "compatible" with the
  * scope of the session.  The method url is <it>compatible</i> if its
  * host+port is the same as the session's host+port (=scope) and its scheme is
  * compatible, where e.g. http is compatible with https
- * (see HTTPAuthUtil.scopeCompatible)
+ * (see HTTPAuthUtil.httphostCompatible)
  * <p>
  * If the HTTPFactory method creation call does not specify a session
  * object, then one is created (and destroyed) behind the scenes
@@ -122,13 +129,18 @@ import java.util.zip.ZipInputStream;
  * change. Also note that the immutable objects will be cached and reused
  * if no parameters are changed.
  * <p>
- * <ul>Authorization</ul>
- * We assume that the session supports two CredentialsProvider instances
- * and that for a our realm, there is only one scheme for accessing it.
- * The two providers are global and local. The global is used for
- * all HTTPSession instances and the local is for a specific instance.
+ * <em>Authorization</em>
+ * We assume that the session supports two CredentialsProvider instances:
+ * one global to all HTTPSession objects and one specific to each
+ * HTTPSession object.
  * <p>
- * <ul>Proxy</ul>
+ * As an aside, authentication is a bit tricky because some
+ * authorization schemes use redirection. That is, the initial request
+ * is made to server X, but X says: goto to server Y" to get, say, and
+ * authorization token.  Then Y says: return to X with this token and
+ * proceed.
+ * <p>
+ * <em>Proxy</em>
  * We no longer include any proxy support. Instead we assume the user
  * will set the following -D flags:
  * <ul>
@@ -136,6 +148,9 @@ import java.util.zip.ZipInputStream;
  * <li> -Dhttp.proxyPort=<port>
  * <li> -Djava.net.useSystemProxies(=true)
  * </ul>
+ * <p>
+ * <em>SSL</em>
+ * TBD.
  */
 
 public class HTTPSession implements AutoCloseable
@@ -185,7 +200,37 @@ public class HTTPSession implements AutoCloseable
     static final String[] KNOWNCOMPRESSORS = {"gzip", "deflate"};
 
     //////////////////////////////////////////////////////////////////////////
+    static final boolean IGNORECERTS = false;
+
+    //////////////////////////////////////////////////////////////////////////
     // Type Declaration(s)
+
+
+    // Support loose certificate acceptance 
+    static class LooseTrustStrategy extends TrustSelfSignedStrategy
+    {
+        @Override
+        public boolean
+        isTrusted(final X509Certificate[] chain, String authType)
+                throws CertificateException
+        {
+            try {
+                if(super.isTrusted(chain, authType)) return true;
+                // check expiration dates
+                for(X509Certificate x5 : chain) {
+                    try {
+                        x5.checkValidity();
+                    } catch (CertificateExpiredException
+                            | CertificateNotYetValidException ce) {
+                        return true;
+                    }
+                }
+            } catch (CertificateException e) {
+                return true; // temporary
+            }
+            return false;
+        }
+    }
 
     /**
      * Sub-class HashTable<String,Object> for mnemonic convenience
@@ -305,14 +350,16 @@ public class HTTPSession implements AutoCloseable
         }
     }
 
-    static class AuthPair
+    static class AuthInfo
     {
-        String scheme = null;
         CredentialsProvider provider = null;
+        String scheme = null;
+        HttpHost realm = null;
 
-        public AuthPair(String scheme, CredentialsProvider provider)
+        public AuthInfo(CredentialsProvider provider, String scheme, HttpHost realm)
         {
             this.scheme = scheme;
+            this.realm = realm; // might be null
             this.provider = provider;
         }
     }
@@ -351,7 +398,9 @@ public class HTTPSession implements AutoCloseable
     // As taken from the command line, usually
     static protected KeyStore keystore = null;
     static protected KeyStore truststore = null;
+    static protected String keypath = null;
     static protected String keypassword = null;
+    static protected String trustpath = null;
     static protected String trustpassword = null;
     static protected SSLConnectionSocketFactory globalsslfactory = null;
 
@@ -462,7 +511,7 @@ public class HTTPSession implements AutoCloseable
     setGlobalCredentialsProvider(CredentialsProvider provider)
             throws HTTPException
     {
-        if(provider == null) throw new IllegalArgumentException("null argument");
+        assert (provider != null);
         setGlobalCredentialsProvider(provider, AuthSchemes.BASIC);
     }
 
@@ -481,29 +530,45 @@ public class HTTPSession implements AutoCloseable
         setGlobalCredentialsProvider(provider);
     }
 
-    /**
-     * Ideally, it would nice if one could get the scheme
-     * from the Credentials/CredentialsProvider, but no.
-     */
     static public void
-    setGlobalCredentialsProvider(CredentialsProvider provider, String scheme)
+    setGlobalCredentialsProvider(CredentialsProvider provider, String authscheme)
             throws HTTPException
     {
-        if(provider == null || scheme == null)
-            throw new IllegalArgumentException("null argument");
-        globalsettings.setParameter(CREDENTIALS, new AuthPair(scheme, provider));
+        setGlobalCredentialsProvider(provider, authscheme, null);
     }
 
     /**
-     * Following are for back compatibility
+     * This is the most general case
+     * Ideally, it would nice if one could get the scheme
+     * from the Credentials/CredentialsProvider, but no.
+     *
+     * @param provider   the credentials provider
+     * @param authscheme the scheme for which the provider is designed
+     * @param realm      where to use it (i.e. on what host)
+     * @throws HTTPException
      */
+    static public void
+    setGlobalCredentialsProvider(CredentialsProvider provider, String authscheme, HttpHost realm)
+            throws HTTPException
+    {
+        assert (provider != null);
+        if(authscheme == null)
+            authscheme = HTTPAuthUtil.DEFAULTSCHEME;
+        globalsettings.setParameter(CREDENTIALS,
+                new AuthInfo(provider, authscheme, realm));
+    }
+
+    //////////////////////////////////////////////////
+    // Following are for back compatibility
 
     @Deprecated
     static public void
     setGlobalCredentialsProvider(AuthScope scope, CredentialsProvider provider)
             throws HTTPException
     {
-        setGlobalCredentialsProvider(provider);
+        assert (scope != null && provider != null);
+        HttpHost hh = new HttpHost(scope.getHost(), scope.getPort(), null);
+        setGlobalCredentialsProvider(provider, null, hh);
     }
 
     @Deprecated
@@ -511,10 +576,9 @@ public class HTTPSession implements AutoCloseable
     setGlobalCredentialsProvider(String url, CredentialsProvider provider)
             throws HTTPException
     {
-        if(url == null || provider == null)
-            throw new IllegalArgumentException("null argument");
-        AuthScope scope = HTTPAuthUtil.uriToScope(url, AuthSchemes.BASIC);
-        setGlobalCredentialsProvider(scope, provider);
+        assert (url != null && provider != null);
+        HttpHost realm = HTTPAuthUtil.uriToHttpHost(url);
+        setGlobalCredentialsProvider(provider, null, realm);
     }
 
     @Deprecated
@@ -522,8 +586,10 @@ public class HTTPSession implements AutoCloseable
     setGlobalCredentials(String url, Credentials creds)
             throws HTTPException
     {
+        assert (url != null && creds != null);
+        HttpHost realm = HTTPAuthUtil.uriToHttpHost(url);
         CredentialsProvider provider = new HTTPConstantProvider(creds);
-        setGlobalCredentialsProvider(url, provider);
+        setGlobalCredentialsProvider(provider, null, realm);
     }
 
     //////////////////////////////////////////////////
@@ -625,18 +691,8 @@ public class HTTPSession implements AutoCloseable
     static synchronized void
     setGlobalSSLAuth()
     {
-        RegistryBuilder rb = RegistryBuilder.<ConnectionSocketFactory>create();
-
-        String keypassword = cleanproperty("keystorepassword");
-        String keypath = cleanproperty("keystore");
-        String trustpassword = cleanproperty("truststorepassword");
-        String trustpath = cleanproperty("truststore");
-
-        if(keypath == null && trustpath == null) {
-            HTTPSession.log.info(String.format("HTTPSession: no trust/key store properties found"));
-            sslregistry = rb.build();
-            return;
-        }
+        keypath = cleanproperty("keystore");
+        trustpath = cleanproperty("truststore");
 
         // load the stores
         try {
@@ -659,22 +715,46 @@ public class HTTPSession implements AutoCloseable
             log.error("Illegal -D keystore parameters: " + ex.getMessage());
         }
         try {
-            // set up the global info
-            SSLContextBuilder sslbuilder = SSLContexts.custom();
-            HostnameVerifier verifier = new HostnameVerifier()
-            {
-                public boolean verify(String hostname, SSLSession session)
-                {
-                    return true;
-                }
-            };
+            // set up the context
 
-            if(truststore != null)
-                sslbuilder.loadTrustMaterial(truststore, new TrustSelfSignedStrategy());
-            if(keystore != null)
-                sslbuilder.loadKeyMaterial(keystore, keypassword.toCharArray());
-            SSLContext scxt = sslbuilder.build();
-            globalsslfactory = new SSLConnectionSocketFactory(scxt, verifier);
+            SSLContext scxt = null;
+
+            if(IGNORECERTS) {
+                scxt = SSLContext.getInstance("TLS");
+                TrustManager[] trust_mgr = new TrustManager[]{
+                        new X509TrustManager()
+                        {
+                            public X509Certificate[] getAcceptedIssuers()
+                            {
+                                return null;
+                            }
+
+                            public void checkClientTrusted(X509Certificate[] certs, String t)
+                            {
+                            }
+
+                            public void checkServerTrusted(X509Certificate[] certs, String t)
+                            {
+                            }
+                        }};
+                scxt.init(null,               // key manager
+                        trust_mgr,          // trust manager
+                        new SecureRandom()); // random number generator
+            } else {
+                SSLContextBuilder sslbuilder = SSLContexts.custom();
+                TrustStrategy strat = new LooseTrustStrategy();
+                if(truststore != null)
+                    sslbuilder.loadTrustMaterial(truststore, strat);
+                else
+                    sslbuilder.loadTrustMaterial(strat);
+                sslbuilder.loadTrustMaterial(truststore, new LooseTrustStrategy());
+                if(keystore != null)
+                    sslbuilder.loadKeyMaterial(keystore, keypassword.toCharArray());
+                scxt = sslbuilder.build();
+            }
+            globalsslfactory = new SSLConnectionSocketFactory(scxt, new NoopHostnameVerifier());
+
+            RegistryBuilder rb = RegistryBuilder.<ConnectionSocketFactory>create();
             rb.register("https", globalsslfactory);
 
             sslregistry = rb.build();
@@ -689,11 +769,11 @@ public class HTTPSession implements AutoCloseable
     //////////////////////////////////////////////////
     // Instance variables
 
-
     // Currently, the granularity of authorization is host+port.
-    protected String sessionURL = null; // This is a real url or one from the scope
-    protected URI scopeURI = null;
-    protected AuthScope scope = null; /* from scopeURI  */
+    protected String sessionURI = null; // This is either a real url
+    // or one constructed from an HttpHost
+    protected URI httphostURI = null; // constructed
+    protected HttpHost httphost = null; /* from httphostURI  */
     protected boolean closed = false;
 
     protected List<ucar.httpservices.HTTPMethod> methodList = new Vector<HTTPMethod>();
@@ -715,48 +795,43 @@ public class HTTPSession implements AutoCloseable
 
     //////////////////////////////////////////////////
     // Constructor(s)
+    // All are package level so that only HTTPFactory can be used
+    // externally
 
     protected HTTPSession()
             throws HTTPException
     {
     }
 
-    public HTTPSession(String host, int port)
+    HTTPSession(String host, int port)
             throws HTTPException
     {
-        init(new AuthScope(host, port, HTTPAuthUtil.makerealm(host, port)));
+        init(new HttpHost(host, port, null), null);
     }
 
-
-    public HTTPSession(String url)
+    HTTPSession(String uri)
             throws HTTPException
     {
-        if(url == null || url.length() == 0)
-            throw new HTTPException("HTTPSession(): empty URL not allowed");
-        try {
-            HTTPUtil.parseToURI(url); /// validate
-        } catch (URISyntaxException mue) {
-            throw new HTTPException("Malformed URL: " + url, mue);
-        }
-        // Make sure url has leading protocol
-        if(!url.matches("^[a-zZ-Z0-9+.-]+:.*$"))
-            url = "http:" + url; // try to make it parseable
-        this.sessionURL = url;
-        init(HTTPAuthUtil.uriToScope(url, null));
+        init(HTTPAuthUtil.uriToHttpHost(uri), uri);
     }
 
-    public HTTPSession(AuthScope scope)
+    HTTPSession(HttpHost httphost)
             throws HTTPException
     {
-        init(scope);
+        assert (httphost != null && httphost.getSchemeName() != null);
+        init(httphost, null);
     }
 
-    protected void init(AuthScope scope)
+    protected void init(HttpHost httphost, String url)
             throws HTTPException
     {
-        if(scope == null) throw new IllegalArgumentException("null argument");
-        this.scope = scope;
-        this.scopeURI = HTTPAuthUtil.scopeToURI(scope);
+        assert (httphost != null);
+        if(url == null)
+            this.sessionURI = url;
+        else
+            this.sessionURI = httphost.toURI();
+        this.httphost = httphost;
+        this.httphostURI = HTTPAuthUtil.httphostToURI(httphost);
         this.cachevalid = false; // Force build on first use
         this.sessioncontext.setCookieStore(new BasicCookieStore());
         this.sessioncontext.setAttribute(HttpClientContext.AUTH_CACHE, new BasicAuthCache());
@@ -834,14 +909,14 @@ public class HTTPSession implements AutoCloseable
         return localsettings;
     }
 
-    public AuthScope getScope()
+    public HttpHost getHttpHost()
     {
-        return this.scope;
+        return this.httphost;
     }
 
-    public String getSessionURL()
+    public String getSessionURI()
     {
-        return this.sessionURL;
+        return this.sessionURI;
     }
 
     /**
@@ -999,8 +1074,8 @@ public class HTTPSession implements AutoCloseable
     setCredentialsProvider(CredentialsProvider provider)
             throws HTTPException
     {
-        if(provider == null) throw new IllegalArgumentException("null argument");
-        setCredentialsProvider(provider, AuthSchemes.BASIC);
+        assert (provider != null);
+        setCredentialsProvider(provider, AuthSchemes.BASIC, null);
     }
 
     /**
@@ -1014,7 +1089,7 @@ public class HTTPSession implements AutoCloseable
     setCredentials(Credentials creds)
             throws HTTPException
     {
-        if(creds == null) throw new IllegalArgumentException("null argument");
+        assert (creds != null);
         CredentialsProvider provider = new HTTPConstantProvider(creds);
         setCredentialsProvider(provider);
     }
@@ -1023,21 +1098,38 @@ public class HTTPSession implements AutoCloseable
     setCredentialsProvider(CredentialsProvider provider, String scheme)
             throws HTTPException
     {
-        if(provider == null || scheme == null) throw new IllegalArgumentException("null argument");
-        localsettings.setParameter(CREDENTIALS, new AuthPair(scheme, provider));
+        assert (provider != null && scheme != null);
+        setCredentialsProvider(provider, scheme, null);
     }
 
     /**
-     * For backward compatibility
+     * This is the most general case
+     *
+     * @param provider   the credentials provider
+     * @param authscheme the scheme for which the provider is designed
+     * @param realm      where to use it (i.e. on what host)
+     * @throws HTTPException
      */
+    public void
+    setCredentialsProvider(CredentialsProvider provider, String authscheme, HttpHost realm)
+            throws HTTPException
+    {
+        assert (provider != null);
+        if(authscheme == null)
+            authscheme = HTTPAuthUtil.DEFAULTSCHEME;
+        localsettings.setParameter(CREDENTIALS,
+                new AuthInfo(provider, authscheme, realm));
+    }
+
+    //////////////////////////////////////////////////
+    // For backward compatibility
 
     @Deprecated
     public void
     setCredentials(String url, Credentials creds)
             throws HTTPException
     {
-        if(url == null || creds == null)
-            throw new IllegalArgumentException("null argument");
+        assert (creds != null);
         CredentialsProvider provider = new HTTPConstantProvider(creds);
         setCredentialsProvider(url, provider);
     }
@@ -1047,10 +1139,9 @@ public class HTTPSession implements AutoCloseable
     setCredentialsProvider(String url, CredentialsProvider provider)
             throws HTTPException
     {
-        if(url == null || provider == null)
-            throw new IllegalArgumentException("null argument");
-        AuthScope scope = HTTPAuthUtil.uriToScope(url, AuthSchemes.BASIC);
-        setCredentialsProvider(scope, provider);
+        assert (url != null && provider != null);
+        HttpHost httphost = HTTPAuthUtil.uriToHttpHost(url);
+        setCredentialsProvider(provider, AuthSchemes.BASIC, httphost);
     }
 
     @Deprecated
@@ -1058,9 +1149,9 @@ public class HTTPSession implements AutoCloseable
     setCredentialsProvider(AuthScope scope, CredentialsProvider provider)
             throws HTTPException
     {
-        if(provider == null || scope == null || scope.getScheme() == null)
-            throw new IllegalArgumentException("null argument");
-        setCredentialsProvider(provider);
+        assert (provider != null && scope != null);
+        HttpHost hh = new HttpHost(scope.getHost(), scope.getPort(), null);
+        setCredentialsProvider(provider, AuthSchemes.BASIC, hh);
     }
 
     //////////////////////////////////////////////////
@@ -1086,8 +1177,8 @@ public class HTTPSession implements AutoCloseable
     {
         this.requestURI = methoduri;
         RequestConfig.Builder rcb = RequestConfig.custom();
-        HttpHost target = HTTPAuthUtil.scopeToHost(this.scope,
-                HTTPAuthUtil.uriToScope(methoduri,HTTPAuthUtil.ANY_SCHEME));
+        HttpHost methodhost = HTTPAuthUtil.uriToHttpHost(methoduri);
+        HttpHost target = HTTPAuthUtil.httphostUpgrade(this.httphost, methodhost);
 
         synchronized (this) {// keep coverity happy
             //Merge Settings;
@@ -1154,7 +1245,6 @@ public class HTTPSession implements AutoCloseable
      * Handle authentication.
      *
      * @param cb
-     * @param rb
      * @param settings
      * @throws HTTPException
      */
@@ -1164,12 +1254,12 @@ public class HTTPSession implements AutoCloseable
             throws HTTPException
     {
         // Get the appropriate AuthPair.
-        AuthPair pair = (AuthPair) globalsettings.get(CREDENTIALS);
-        if(pair != null)
-            cb.setDefaultCredentialsProvider(pair.provider);
-        pair = (AuthPair) localsettings.get(CREDENTIALS);
-        if(pair != null)
-            this.sessioncontext.setCredentialsProvider(pair.provider);
+        AuthInfo triple = (AuthInfo) globalsettings.get(CREDENTIALS);
+        if(triple != null)
+            cb.setDefaultCredentialsProvider(triple.provider);
+        triple = (AuthInfo) localsettings.get(CREDENTIALS);
+        if(triple != null)
+            this.sessioncontext.setCredentialsProvider(triple.provider);
         cb.setSSLSocketFactory(globalsslfactory);
     }
 

@@ -35,12 +35,13 @@ package ucar.nc2.util.net;
 import java.util.List;
 
 import org.apache.http.Header;
+import org.apache.http.auth.Credentials;
+import org.apache.http.auth.UsernamePasswordCredentials;
 import org.apache.http.client.CredentialsProvider;
 import org.apache.http.message.AbstractHttpMessage;
 import org.junit.Assert;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
-import ucar.httpservices.HTTPBasicProvider;
 import ucar.httpservices.HTTPFactory;
 import ucar.httpservices.HTTPMethod;
 import ucar.httpservices.HTTPSession;
@@ -134,8 +135,8 @@ public class TestHTTPSession extends UnitTestCommon
             session.setSoTimeout(17777);
             session.setConnectionTimeout(37777);
             session.setMaxRedirects(111);
-            CredentialsProvider bp = new HTTPBasicProvider("anyuser", "password");
-            session.setCredentialsProvider(TESTURL1, bp);
+            Credentials bp = new UsernamePasswordCredentials("anyuser", "password");
+            session.setCredentials(bp);
             //session.setAuthorizationPreemptive(true); not implemented
 
             HTTPMethod method = HTTPFactory.Get(session,TESTURL1);
