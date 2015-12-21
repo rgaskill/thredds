@@ -98,6 +98,7 @@ public class EchoService implements Runnable, Closeable
                         String body = new String(in, "UTF-8");
                         System.err.println("EchoService.RAW:\n" + body);
                     }
+		    Thredd.sleep(5000);
                     System.err.println(
                             "Closing connection with client");
                     System.err.flush();
