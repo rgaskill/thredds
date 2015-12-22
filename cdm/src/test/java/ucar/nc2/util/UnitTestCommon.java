@@ -258,15 +258,10 @@ public class UnitTestCommon
     checkServer(String candidate)
     {
         if(candidate == null) return false;
-/* requires httpclient4
-        int savecount = HTTPSession.getRetryCount();
-        HTTPSession.setRetryCount(1);
-*/
-        // See if the sourceurl is available by trying to get the DSR
+        // ping to see if we get a response
         System.err.print("Checking for sourceurl: " + candidate);
         try {
-            try (
-                    HTTPMethod method = HTTPFactory.Get(candidate)) {
+            try (HTTPMethod method = HTTPFactory.Get(candidate)) {
                 method.execute();
                 String s = method.getResponseAsString();
                 System.err.println(" ; found");

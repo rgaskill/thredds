@@ -372,9 +372,6 @@ public class HTTPSession implements AutoCloseable
 
     static PoolingHttpClientConnectionManager connmgr;
 
-    static Registry<ConnectionSocketFactory> sslregistry = null;
-
-
     // Define a settings object to hold all the
     // settable values; there will be one
     // instance for global and one for local.
@@ -403,6 +400,7 @@ public class HTTPSession implements AutoCloseable
     static protected String trustpath = null;
     static protected String trustpassword = null;
     static protected SSLConnectionSocketFactory globalsslfactory = null;
+    static Registry<ConnectionSocketFactory> sslregistry = null;
 
     // For debugging
     static protected Boolean globaldebugheaders = null;
@@ -413,7 +411,7 @@ public class HTTPSession implements AutoCloseable
         contentDecoderMap.put("zip", new ZipStreamFactory());
         contentDecoderMap.put("gzip", new GZIPStreamFactory());
         // SSL contexts are handled at the global level only
-        setGlobalSSLAuth();
+        setDefaultSSLAuth();
         connmgr = new PoolingHttpClientConnectionManager(sslregistry);
         globalsettings = new Settings();
         setDefaults(globalsettings);
@@ -689,36 +687,52 @@ public class HTTPSession implements AutoCloseable
     // through the -D properties
 
     static synchronized void
-    setGlobalSSLAuth()
+    setDefaultSSLAuth()
     {
         keypath = cleanproperty("keystore");
+        keypassword = cleanproperty("keystorepassword");
         trustpath = cleanproperty("truststore");
+        trustpassword = cleanproperty("truststorepassword");
+        setGlobalSSLAuth(keypath,keypassword,trustpath,trustpassword);
+    }
+
+    /* Make this externally accessible primarily for testing */
+   
+    static synchronized public void
+    setGlobalSSLAuth(String keypath, String keypassword, String trustpath, String trustpassword)
+    {
+        keypath = HTTPUtil.nullify(keypath);
+        keypassword = HTTPUtil.nullify(keypassword);
+        trustpath = HTTPUtil.nullify(trustpath);
+        trustpassword = HTTPUtil.nullify(trustpassword);
 
         // load the stores
         try {
-            if(trustpath != null) {
+            if(trustpath != null && trustpassword != null) {
                 truststore = KeyStore.getInstance(KeyStore.getDefaultType());
                 try (FileInputStream instream = new FileInputStream(new File(trustpath))) {
                     truststore.load(instream, trustpassword.toCharArray());
                 }
-            }
-            if(keypath != null) {
+            } else
+		truststore = null;
+            if(keypath != null && keypassword != null) {
                 keystore = KeyStore.getInstance(KeyStore.getDefaultType());
                 try (FileInputStream instream = new FileInputStream(new File(keypath))) {
                     keystore.load(instream, keypassword.toCharArray());
                 }
-            }
+            } else
+		keystore = null;
         } catch (IOException
                 | NoSuchAlgorithmException
                 | CertificateException
                 | KeyStoreException ex) {
             log.error("Illegal -D keystore parameters: " + ex.getMessage());
+	    truststore = null;
+	    keystore = null;
         }
         try {
             // set up the context
-
             SSLContext scxt = null;
-
             if(IGNORECERTS) {
                 scxt = SSLContext.getInstance("TLS");
                 TrustManager[] trust_mgr = new TrustManager[]{
@@ -756,13 +770,14 @@ public class HTTPSession implements AutoCloseable
 
             RegistryBuilder rb = RegistryBuilder.<ConnectionSocketFactory>create();
             rb.register("https", globalsslfactory);
-
             sslregistry = rb.build();
         } catch (KeyStoreException
                 | NoSuchAlgorithmException
                 | KeyManagementException
                 | UnrecoverableEntryException e) {
             log.error("Failed to set key/trust store(s): " + e.getMessage());
+	    sslregistry = null;
+	    globalsslfactory = null;
         }
     }
 

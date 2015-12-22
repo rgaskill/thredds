@@ -208,7 +208,6 @@ public class HTTPMethod implements AutoCloseable
 
         // Check method and url compatibiltiy
 
-
         if(session == null) {
             session = HTTPFactory.newSession(url);
             localsession = true;
